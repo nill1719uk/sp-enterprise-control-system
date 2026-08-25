@@ -1,1 +1,3 @@
-streamlit\nsupabase\npandas\n
+streamlit
+supabase
+pandas
