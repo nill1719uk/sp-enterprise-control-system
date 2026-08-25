@@ -1,0 +1,1 @@
+streamlit\nsupabase\npandas\n
