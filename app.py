@@ -211,9 +211,9 @@ elif page == "Stock Control":
     ])
 
 
-    # -----------------------------------------------------------------
-    # TAB 1 - RECORD MOVEMENT
-    # -----------------------------------------------------------------
+ # -----------------------------------------------------------------
+ # TAB 1 - RECORD MOVEMENT / DISPATCH
+ # -----------------------------------------------------------------
 
     with tab1:
 
@@ -226,180 +226,423 @@ elif page == "Stock Control":
             )
 
         else:
-            with st.form("movement", clear_on_submit=True):
 
-                st.subheader("Transaction Details")
+            # ---------------------------------------------------------
+            # STEP 1 - SELECT TRANSACTION TYPE
+            # ---------------------------------------------------------
 
-                c1, c2, c3 = st.columns(3)
+            st.subheader("Record Stock Movement")
 
-                movement_date = c1.date_input(
-                    "Movement date",
-                    date.today()
-                )
+            direction = st.radio(
+                "Transaction Type",
+                ["IN", "OUT"],
+                horizontal=True,
+                key="movement_direction"
+            )
 
-                item_label = c2.selectbox(
-                    "Item",
-                    list(lookup_items)
-                )
-
-                direction = c3.selectbox(
-                    "Movement",
-                    ["IN", "OUT"]
-                )
-
-                c1, c2, c3 = st.columns(3)
-
-                party_label = c1.selectbox(
-                    "Company / Party",
-                    list(lookup_parties)
-                )
-
-                reference_no = c2.text_input(
-                    "Invoice / Challan / Gate Pass No."
-                )
-
-                vehicle_no = c3.text_input("Vehicle No.")
-
-                c1, c2, c3 = st.columns(3)
-
-                quantity = c1.number_input(
-                    "Quantity / PCS",
-                    min_value=0.001,
-                    step=1.0
-                )
-
-                bags = c2.number_input(
-                    "No. of Bags",
-                    min_value=0.0,
-                    step=1.0
-                )
-
-                weight_kg = c3.number_input(
-                    "Weight (KG)",
-                    min_value=0.0,
-                    step=1.0
-                )
-
-                c1, c2, c3 = st.columns(3)
-
-                rate_per_kg = c1.number_input(
-                    "Rate per KG (₹)",
-                    min_value=0.0,
-                    step=0.50
-                )
-
-                transportation = c2.number_input(
-                    "Transportation (₹)",
-                    min_value=0.0,
-                    step=1.0
-                )
-
-                handler = c3.text_input(
-                    "Handled by / Driver"
-                )
-
-                c1, c2 = st.columns(2)
-
-                notes = c1.text_input("Notes")
-
-                billing_amount = weight_kg * rate_per_kg
-
-                c2.metric(
-                    "Calculated Billing Amount",
-                    f"₹{billing_amount:,.2f}"
-                )
-
+            if direction == "OUT":
                 st.caption(
-                    "Billing is calculated as Weight × Rate per KG. "
-                    "Payment/receivable accounting will be connected "
-                    "in the Accounts phase."
+                    "🚚 OUT / DISPATCH: Record material leaving the stock "
+                    "for a customer or other destination."
+                )
+            else:
+                st.caption(
+                    "📥 IN / RECEIPT: Record material received from a "
+                    "supplier or other source."
                 )
 
-                save = st.form_submit_button(
-                    "Save Movement",
-                    type="primary"
-                )
+            # ---------------------------------------------------------
+            # FILTER PARTIES ACCORDING TO TRANSACTION TYPE
+            # ---------------------------------------------------------
 
-                if save:
+            if direction == "OUT":
+
+                available_parties = [
+                    p for p in parties
+                    if p["party_type"] in ["CUSTOMER", "BOTH"]
+                ]
+
+            else:
+
+                available_parties = [
+                    p for p in parties
+                    if p["party_type"] in ["SUPPLIER", "BOTH"]
+                ]
+
+            if not available_parties:
+
+                if direction == "OUT":
+                    st.warning(
+                        "No customer is available. Add a CUSTOMER or "
+                        "BOTH party in the Parties tab first."
+                    )
+                else:
+                    st.warning(
+                        "No supplier is available. Add a SUPPLIER or "
+                        "BOTH party in the Parties tab first."
+                    )
+
+            else:
+
+                filtered_party_lookup = {
+                    f'{x["name"]} [{x["party_type"]}]': x
+                    for x in available_parties
+                }
+
+                # -----------------------------------------------------
+                # STEP 2 - TRANSACTION FORM
+                # -----------------------------------------------------
+
+                with st.form(
+                    "movement",
+                    clear_on_submit=True
+                ):
+
+                    st.subheader(
+                        "🚚 Dispatch Details"
+                        if direction == "OUT"
+                        else "📥 Receipt Details"
+                    )
+
+                    # -------------------------------------------------
+                    # BASIC DETAILS
+                    # -------------------------------------------------
+
+                    c1, c2, c3 = st.columns(3)
+
+                    movement_date = c1.date_input(
+                        "Movement date",
+                        date.today()
+                    )
+
+                    item_label = c2.selectbox(
+                        "Item",
+                        list(lookup_items)
+                    )
+
+                    party_label = c3.selectbox(
+                        "Company / Party",
+                        list(filtered_party_lookup)
+                    )
 
                     item = lookup_items[item_label]
-                    party = lookup_parties[party_label]
+                    party = filtered_party_lookup[party_label]
 
-                    # Prevent negative stock
-                    current_balance = stock_balance(item["id"])[2]
+                    # -------------------------------------------------
+                    # SHOW CURRENT STOCK BEFORE TRANSACTION
+                    # -------------------------------------------------
 
-                    if direction == "OUT" and quantity > current_balance:
-                        st.error(
-                            f"Blocked: recorded balance is only "
-                            f"{current_balance:g} {item['unit']}."
+                    (
+                        incoming_qty,
+                        outgoing_qty,
+                        balance_qty,
+                        incoming_weight,
+                        outgoing_weight,
+                        balance_weight
+                    ) = stock_balance(item["id"])
+
+                    if direction == "OUT":
+
+                        st.markdown("### Available Stock")
+
+                        s1, s2, s3 = st.columns(3)
+
+                        s1.metric(
+                            "Available Quantity",
+                            f"{balance_qty:g} {item['unit']}"
                         )
 
-                    elif not reference_no.strip():
-                        st.error(
-                            "Invoice / Challan / Gate Pass No. "
-                            "is required."
+                        s2.metric(
+                            "Available Weight",
+                            f"{balance_weight:,.2f} KG"
                         )
 
-                    else:
-
-                        # Duplicate protection now includes the
-                        # party/challan/physical quantities.
-                        fingerprint = fp(
-                            movement_date,
-                            item["id"],
-                            party["id"],
-                            direction,
-                            quantity,
-                            bags,
-                            weight_kg,
-                            reference_no
+                        s3.metric(
+                            "Minimum Level",
+                            f"{float(item['minimum_level']):g}"
                         )
 
-                        data = {
-                            "movement_date": str(movement_date),
-                            "item_id": item["id"],
-                            "party_id": party["id"],
-                            "direction": direction,
-                            "quantity": quantity,
-                            "bags": bags,
-                            "weight_kg": weight_kg,
-                            "rate_per_kg": rate_per_kg,
-                            "transportation": transportation,
-                            "billing_amount": billing_amount,
-                            "reference_no": reference_no.strip(),
-                            "vehicle_no": vehicle_no.strip() or None,
-                            "handled_by": handler.strip() or None,
-                            "notes": notes.strip() or None,
-                            "entered_by": str(user.id),
-                            "duplicate_fingerprint": fingerprint
-                        }
+                    # -------------------------------------------------
+                    # DOCUMENT / VEHICLE DETAILS
+                    # -------------------------------------------------
 
-                        try:
-                            (
-                                supabase
-                                .table("stock_movements")
-                                .insert(data)
-                                .execute()
+                    c1, c2, c3 = st.columns(3)
+
+                    reference_no = c1.text_input(
+                        "Invoice / Challan / Gate Pass No. *"
+                    )
+
+                    vehicle_no = c2.text_input(
+                        "Vehicle No."
+                    )
+
+                    handler = c3.text_input(
+                        "Handled by / Driver"
+                    )
+
+                    # -------------------------------------------------
+                    # PHYSICAL STOCK DETAILS
+                    # -------------------------------------------------
+
+                    c1, c2, c3 = st.columns(3)
+
+                    quantity = c1.number_input(
+                        "Quantity / PCS",
+                        min_value=0.001,
+                        step=1.0
+                    )
+
+                    bags = c2.number_input(
+                        "No. of Bags",
+                        min_value=0.0,
+                        step=1.0
+                    )
+
+                    weight_kg = c3.number_input(
+                        "Weight (KG)",
+                        min_value=0.0,
+                        step=1.0
+                    )
+
+                    # -------------------------------------------------
+                    # COMMERCIAL DETAILS
+                    # -------------------------------------------------
+
+                    c1, c2, c3 = st.columns(3)
+
+                    rate_per_kg = c1.number_input(
+                        "Rate per KG (₹)",
+                        min_value=0.0,
+                        step=0.50
+                    )
+
+                    transportation = c2.number_input(
+                        "Transportation (₹)",
+                        min_value=0.0,
+                        step=1.0
+                    )
+
+                    notes = c3.text_input(
+                        "Notes"
+                    )
+
+                    # -------------------------------------------------
+                    # BILLING CALCULATION
+                    # -------------------------------------------------
+
+                    billing_amount = weight_kg * rate_per_kg
+
+                    st.markdown("### Transaction Summary")
+
+                    a, b, c = st.columns(3)
+
+                    a.metric(
+                        "Material Value",
+                        f"₹{billing_amount:,.2f}"
+                    )
+
+                    b.metric(
+                        "Transportation",
+                        f"₹{transportation:,.2f}"
+                    )
+
+                    c.metric(
+                        "Total Value",
+                        f"₹{billing_amount + transportation:,.2f}"
+                    )
+
+                    st.caption(
+                        "Material Value = Weight × Rate per KG. "
+                        "Transportation is recorded separately. "
+                        "Accounts/receivables will be connected later."
+                    )
+
+                    # -------------------------------------------------
+                    # SAVE
+                    # -------------------------------------------------
+
+                    save = st.form_submit_button(
+                        "Save Dispatch" if direction == "OUT"
+                        else "Save Receipt",
+                        type="primary"
+                    )
+
+                    if save:
+
+                        # -------------------------------------------------
+                        # VALIDATION 1 - REFERENCE
+                        # -------------------------------------------------
+
+                        if not reference_no.strip():
+
+                            st.error(
+                                "Invoice / Challan / Gate Pass No. "
+                                "is required."
                             )
 
-                            st.success(
-                                "Movement recorded successfully."
+                        # -------------------------------------------------
+                        # VALIDATION 2 - QUANTITY
+                        # -------------------------------------------------
+
+                        elif direction == "OUT" and quantity > balance_qty:
+
+                            st.error(
+                                f"Dispatch blocked: available stock is only "
+                                f"{balance_qty:g} {item['unit']}, but you "
+                                f"entered {quantity:g}."
                             )
 
-                        except Exception as e:
+                        # -------------------------------------------------
+                        # VALIDATION 3 - WEIGHT
+                        # -------------------------------------------------
 
-                            error_text = str(e).lower()
+                        elif direction == "OUT" and weight_kg > balance_weight:
 
-                            if (
-                                "duplicate" in error_text
-                                or "unique" in error_text
-                            ):
-                                st.error(
-                                    "Blocked: this movement appears "
-                                    "to have already been entered."
+                            st.error(
+                                f"Dispatch blocked: available weight is only "
+                                f"{balance_weight:,.2f} KG, but you entered "
+                                f"{weight_kg:,.2f} KG."
+                            )
+
+                        # -------------------------------------------------
+                        # VALIDATION 4 - POSITIVE VALUES
+                        # -------------------------------------------------
+
+                        elif quantity <= 0:
+
+                            st.error(
+                                "Quantity must be greater than zero."
+                            )
+
+                        elif direction == "OUT" and weight_kg <= 0:
+
+                            st.error(
+                                "Weight is required for an OUT / DISPATCH "
+                                "transaction."
+                            )
+
+                        else:
+
+                            # -------------------------------------------------
+                            # DUPLICATE FINGERPRINT
+                            # -------------------------------------------------
+
+                            fingerprint = fp(
+                                movement_date,
+                                item["id"],
+                                party["id"],
+                                direction,
+                                quantity,
+                                bags,
+                                weight_kg,
+                                reference_no
+                            )
+
+                            # -------------------------------------------------
+                            # DATABASE RECORD
+                            # -------------------------------------------------
+
+                            data = {
+                                "movement_date":
+                                    str(movement_date),
+
+                                "item_id":
+                                    item["id"],
+
+                                "party_id":
+                                    party["id"],
+
+                                "direction":
+                                    direction,
+
+                                "quantity":
+                                    quantity,
+
+                                "bags":
+                                    bags,
+
+                                "weight_kg":
+                                    weight_kg,
+
+                                "rate_per_kg":
+                                    rate_per_kg,
+
+                                "transportation":
+                                    transportation,
+
+                                "billing_amount":
+                                    billing_amount,
+
+                                "reference_no":
+                                    reference_no.strip(),
+
+                                "vehicle_no":
+                                    vehicle_no.strip() or None,
+
+                                "handled_by":
+                                    handler.strip() or None,
+
+                                "notes":
+                                    notes.strip() or None,
+
+                                "entered_by":
+                                    str(user.id),
+
+                                "duplicate_fingerprint":
+                                    fingerprint
+                            }
+
+                            # -------------------------------------------------
+                            # SAVE TO SUPABASE
+                            # -------------------------------------------------
+
+                            try:
+
+                                (
+                                    supabase
+                                    .table("stock_movements")
+                                    .insert(data)
+                                    .execute()
                                 )
-                            else:
-                                st.error(str(e))
+
+                                if direction == "OUT":
+
+                                    st.success(
+                                        "✅ Dispatch recorded successfully. "
+                                        "Stock has been updated."
+                                    )
+
+                                else:
+
+                                    st.success(
+                                        "✅ Stock receipt recorded "
+                                        "successfully."
+                                    )
+
+                                st.info(
+                                    f"{item['name']} | "
+                                    f"{quantity:g} {item['unit']} | "
+                                    f"{weight_kg:,.2f} KG | "
+                                    f"{party['name']}"
+                                )
+
+                            except Exception as e:
+
+                                error_text = str(e).lower()
+
+                                if (
+                                    "duplicate" in error_text
+                                    or "unique" in error_text
+                                ):
+
+                                    st.error(
+                                        "Blocked: this transaction appears "
+                                        "to have already been entered."
+                                    )
+
+                                else:
+
+                                    st.error(str(e))
 
 
     # -----------------------------------------------------------------
