@@ -203,22 +203,24 @@ elif page == "Stock Control":
     }
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Record Movement",
-        "Current Stock",
-        "Parties",
-        "Party Ledger",
-        "Movement Register"
-    ])
+    "📦 Receive / Dispatch",
+    "Current Stock",
+    "Parties",
+    "Party Ledger",
+    "Movement Register"
+])
 
 
- # -----------------------------------------------------------------
- # TAB 1 - RECORD MOVEMENT / DISPATCH
- # -----------------------------------------------------------------
+     # -----------------------------------------------------------------
+    # TAB 1 - RECEIVE / DISPATCH
+    # -----------------------------------------------------------------
 
     with tab1:
 
         if not items:
-            st.warning("Add stock items first in Current Stock.")
+            st.warning(
+                "Add stock items first in Current Stock."
+            )
 
         elif not parties:
             st.warning(
@@ -227,422 +229,658 @@ elif page == "Stock Control":
 
         else:
 
-            # ---------------------------------------------------------
-            # STEP 1 - SELECT TRANSACTION TYPE
-            # ---------------------------------------------------------
-
-            st.subheader("Record Stock Movement")
-
-            direction = st.radio(
+            movement_mode = st.radio(
                 "Transaction Type",
-                ["IN", "OUT"],
+                [
+                    "📥 Receive Stock",
+                    "📤 New Dispatch"
+                ],
                 horizontal=True,
-                key="movement_direction"
+                key="movement_mode"
             )
 
-            if direction == "OUT":
+            # =========================================================
+            # RECEIVE STOCK
+            # =========================================================
+
+            if movement_mode == "📥 Receive Stock":
+
+                st.subheader("📥 Receive Stock")
+
                 st.caption(
-                    "🚚 OUT / DISPATCH: Record material leaving the stock "
-                    "for a customer or other destination."
+                    "Record stock received from a supplier or other party."
                 )
-            else:
+
+                c1, c2, c3 = st.columns(3)
+
+                movement_date = c1.date_input(
+                    "Receipt Date",
+                    date.today(),
+                    key="receive_date"
+                )
+
+                item_label = c2.selectbox(
+                    "Item",
+                    list(lookup_items),
+                    key="receive_item"
+                )
+
+                party_label = c3.selectbox(
+                    "Supplier / Party",
+                    list(lookup_parties),
+                    key="receive_party"
+                )
+
+                item = lookup_items[item_label]
+                party = lookup_parties[party_label]
+
+                c1, c2, c3 = st.columns(3)
+
+                reference_no = c1.text_input(
+                    "Invoice / Challan / Gate Pass No.",
+                    key="receive_reference"
+                )
+
+                vehicle_no = c2.text_input(
+                    "Vehicle No.",
+                    key="receive_vehicle"
+                )
+
+                handler = c3.text_input(
+                    "Handled by / Driver",
+                    key="receive_handler"
+                )
+
+                c1, c2, c3 = st.columns(3)
+
+                quantity = c1.number_input(
+                    f"Quantity ({item['unit']})",
+                    min_value=0.0,
+                    step=1.0,
+                    key="receive_quantity"
+                )
+
+                bags = c2.number_input(
+                    "No. of Bags",
+                    min_value=0.0,
+                    step=1.0,
+                    key="receive_bags"
+                )
+
+                weight_kg = c3.number_input(
+                    "Weight (KG)",
+                    min_value=0.0,
+                    step=1.0,
+                    key="receive_weight"
+                )
+
+                c1, c2, c3 = st.columns(3)
+
+                rate_per_kg = c1.number_input(
+                    "Rate per KG (₹)",
+                    min_value=0.0,
+                    step=0.50,
+                    key="receive_rate"
+                )
+
+                transportation = c2.number_input(
+                    "Transportation (₹)",
+                    min_value=0.0,
+                    step=1.0,
+                    key="receive_transport"
+                )
+
+                notes = c3.text_input(
+                    "Notes",
+                    key="receive_notes"
+                )
+
+                billing_amount = weight_kg * rate_per_kg
+
+                st.divider()
+
+                a, b, c = st.columns(3)
+
+                a.metric(
+                    "Material Value",
+                    f"₹{billing_amount:,.2f}"
+                )
+
+                b.metric(
+                    "Transportation",
+                    f"₹{transportation:,.2f}"
+                )
+
+                c.metric(
+                    "Total Value",
+                    f"₹{billing_amount + transportation:,.2f}"
+                )
+
                 st.caption(
-                    "📥 IN / RECEIPT: Record material received from a "
-                    "supplier or other source."
+                    "Material Value = Weight × Rate per KG."
                 )
 
-            # ---------------------------------------------------------
-            # FILTER PARTIES ACCORDING TO TRANSACTION TYPE
-            # ---------------------------------------------------------
-
-            if direction == "OUT":
-
-                available_parties = [
-                    p for p in parties
-                    if p["party_type"] in ["CUSTOMER", "BOTH"]
-                ]
-
-            else:
-
-                available_parties = [
-                    p for p in parties
-                    if p["party_type"] in ["SUPPLIER", "BOTH"]
-                ]
-
-            if not available_parties:
-
-                if direction == "OUT":
-                    st.warning(
-                        "No customer is available. Add a CUSTOMER or "
-                        "BOTH party in the Parties tab first."
-                    )
-                else:
-                    st.warning(
-                        "No supplier is available. Add a SUPPLIER or "
-                        "BOTH party in the Parties tab first."
-                    )
-
-            else:
-
-                filtered_party_lookup = {
-                    f'{x["name"]} [{x["party_type"]}]': x
-                    for x in available_parties
-                }
-
-                # -----------------------------------------------------
-                # STEP 2 - TRANSACTION FORM
-                # -----------------------------------------------------
-
-                with st.form(
-                    "movement",
-                    clear_on_submit=True
+                if st.button(
+                    "📥 Save Receipt",
+                    type="primary",
+                    key="save_receipt"
                 ):
 
-                    st.subheader(
-                        "🚚 Dispatch Details"
-                        if direction == "OUT"
-                        else "📥 Receipt Details"
+                    if not reference_no.strip():
+                        st.error(
+                            "Invoice / Challan / Gate Pass No. is required."
+                        )
+
+                    elif quantity <= 0:
+                        st.error(
+                            "Quantity must be greater than zero."
+                        )
+
+                    elif weight_kg <= 0:
+                        st.error(
+                            "Weight must be greater than zero."
+                        )
+
+                    else:
+
+                        fingerprint = fp(
+                            movement_date,
+                            item["id"],
+                            party["id"],
+                            "IN",
+                            quantity,
+                            bags,
+                            weight_kg,
+                            reference_no
+                        )
+
+                        data = {
+                            "movement_date": str(movement_date),
+                            "item_id": item["id"],
+                            "party_id": party["id"],
+                            "direction": "IN",
+                            "quantity": quantity,
+                            "bags": bags,
+                            "weight_kg": weight_kg,
+                            "rate_per_kg": rate_per_kg,
+                            "transportation": transportation,
+                            "billing_amount": billing_amount,
+                            "reference_no": reference_no.strip(),
+                            "vehicle_no": vehicle_no.strip() or None,
+                            "handled_by": handler.strip() or None,
+                            "notes": notes.strip() or None,
+                            "entered_by": str(user.id),
+                            "duplicate_fingerprint": fingerprint
+                        }
+
+                        try:
+
+                            (
+                                supabase
+                                .table("stock_movements")
+                                .insert(data)
+                                .execute()
+                            )
+
+                            st.success(
+                                "Stock receipt recorded successfully."
+                            )
+
+                            st.rerun()
+
+                        except Exception as e:
+
+                            error_text = str(e).lower()
+
+                            if (
+                                "duplicate" in error_text
+                                or "unique" in error_text
+                            ):
+                                st.error(
+                                    "Blocked: this receipt appears "
+                                    "to have already been entered."
+                                )
+                            else:
+                                st.error(str(e))
+
+
+            # =========================================================
+            # NEW DISPATCH
+            # =========================================================
+
+            else:
+
+                st.subheader("📤 New Dispatch")
+
+                st.caption(
+                    "Dispatch stock to a customer/party. "
+                    "The system will automatically check available "
+                    "quantity and weight before allowing the dispatch."
+                )
+
+                # -----------------------------------------------------
+                # Dispatch basic details
+                # -----------------------------------------------------
+
+                c1, c2, c3 = st.columns(3)
+
+                dispatch_date = c1.date_input(
+                    "Dispatch Date",
+                    date.today(),
+                    key="dispatch_date"
+                )
+
+                dispatch_item_label = c2.selectbox(
+                    "Item",
+                    list(lookup_items),
+                    key="dispatch_item"
+                )
+
+                dispatch_party_label = c3.selectbox(
+                    "Customer / Party",
+                    list(lookup_parties),
+                    key="dispatch_party"
+                )
+
+                dispatch_item = lookup_items[dispatch_item_label]
+                dispatch_party = lookup_parties[dispatch_party_label]
+
+                # -----------------------------------------------------
+                # LIVE STOCK POSITION
+                # -----------------------------------------------------
+
+                (
+                    incoming_qty,
+                    outgoing_qty,
+                    available_qty,
+                    incoming_weight,
+                    outgoing_weight,
+                    available_weight
+                ) = stock_balance(dispatch_item["id"])
+
+                st.divider()
+
+                st.subheader("📊 Available Stock")
+
+                s1, s2, s3, s4 = st.columns(4)
+
+                s1.metric(
+                    "Available Quantity",
+                    f"{available_qty:g} {dispatch_item['unit']}"
+                )
+
+                s2.metric(
+                    "Available Weight",
+                    f"{available_weight:,.2f} KG"
+                )
+
+                s3.metric(
+                    "Total Received",
+                    f"{incoming_qty:g} {dispatch_item['unit']}"
+                )
+
+                s4.metric(
+                    "Total Dispatched",
+                    f"{outgoing_qty:g} {dispatch_item['unit']}"
+                )
+
+                if available_qty <= 0:
+
+                    st.error(
+                        "🚫 No stock is currently available for dispatch."
                     )
 
-                    # -------------------------------------------------
-                    # BASIC DETAILS
-                    # -------------------------------------------------
+                # -----------------------------------------------------
+                # Dispatch quantities
+                # -----------------------------------------------------
 
-                    c1, c2, c3 = st.columns(3)
+                st.divider()
 
-                    movement_date = c1.date_input(
-                        "Movement date",
-                        date.today()
+                st.subheader("Dispatch Quantity")
+
+                c1, c2, c3 = st.columns(3)
+
+                dispatch_quantity = c1.number_input(
+                    f"Dispatch Quantity ({dispatch_item['unit']})",
+                    min_value=0.0,
+                    max_value=max(float(available_qty), 0.0),
+                    step=1.0,
+                    key="dispatch_quantity"
+                )
+
+                dispatch_bags = c2.number_input(
+                    "No. of Bags",
+                    min_value=0.0,
+                    step=1.0,
+                    key="dispatch_bags"
+                )
+
+                dispatch_weight = c3.number_input(
+                    "Dispatch Weight (KG)",
+                    min_value=0.0,
+                    max_value=max(float(available_weight), 0.0),
+                    step=1.0,
+                    key="dispatch_weight"
+                )
+
+                # -----------------------------------------------------
+                # LIVE REMAINING STOCK
+                # -----------------------------------------------------
+
+                remaining_qty = available_qty - dispatch_quantity
+                remaining_weight = available_weight - dispatch_weight
+
+                r1, r2 = st.columns(2)
+
+                r1.metric(
+                    "Stock After Dispatch",
+                    f"{remaining_qty:g} {dispatch_item['unit']}"
+                )
+
+                r2.metric(
+                    "Weight After Dispatch",
+                    f"{remaining_weight:,.2f} KG"
+                )
+
+                if remaining_qty < 0:
+
+                    st.error(
+                        "🚫 Dispatch quantity exceeds available stock."
                     )
 
-                    item_label = c2.selectbox(
-                        "Item",
-                        list(lookup_items)
+                if remaining_weight < 0:
+
+                    st.error(
+                        "🚫 Dispatch weight exceeds available stock."
                     )
 
-                    party_label = c3.selectbox(
-                        "Company / Party",
-                        list(filtered_party_lookup)
+                # -----------------------------------------------------
+                # Commercial details
+                # -----------------------------------------------------
+
+                st.divider()
+
+                st.subheader("💰 Dispatch Value")
+
+                c1, c2, c3 = st.columns(3)
+
+                dispatch_rate = c1.number_input(
+                    "Rate per KG (₹)",
+                    min_value=0.0,
+                    step=0.50,
+                    key="dispatch_rate"
+                )
+
+                dispatch_transportation = c2.number_input(
+                    "Transportation (₹)",
+                    min_value=0.0,
+                    step=1.0,
+                    key="dispatch_transport"
+                )
+
+                dispatch_billing = (
+                    dispatch_weight * dispatch_rate
+                )
+
+                c3.metric(
+                    "Material Value",
+                    f"₹{dispatch_billing:,.2f}"
+                )
+
+                v1, v2 = st.columns(2)
+
+                v1.metric(
+                    "Transportation",
+                    f"₹{dispatch_transportation:,.2f}"
+                )
+
+                v2.metric(
+                    "Total Dispatch Value",
+                    f"₹{dispatch_billing + dispatch_transportation:,.2f}"
+                )
+
+                st.caption(
+                    "Material Value = Dispatch Weight × Rate per KG."
+                )
+
+                # -----------------------------------------------------
+                # Dispatch documentation
+                # -----------------------------------------------------
+
+                st.divider()
+
+                st.subheader("🚚 Dispatch Documentation")
+
+                c1, c2, c3 = st.columns(3)
+
+                dispatch_reference = c1.text_input(
+                    "Dispatch / Challan No.",
+                    key="dispatch_reference"
+                )
+
+                dispatch_vehicle = c2.text_input(
+                    "Vehicle No.",
+                    key="dispatch_vehicle"
+                )
+
+                dispatch_handler = c3.text_input(
+                    "Driver / Handled By",
+                    key="dispatch_handler"
+                )
+
+                dispatch_notes = st.text_input(
+                    "Dispatch Notes",
+                    key="dispatch_notes"
+                )
+
+                # -----------------------------------------------------
+                # FINAL DISPATCH SUMMARY
+                # -----------------------------------------------------
+
+                st.divider()
+
+                st.subheader("📋 Dispatch Summary")
+
+                summary_left, summary_right = st.columns(2)
+
+                with summary_left:
+
+                    st.write(
+                        f"**Customer / Party:** "
+                        f"{dispatch_party['name']}"
                     )
 
-                    item = lookup_items[item_label]
-                    party = filtered_party_lookup[party_label]
+                    st.write(
+                        f"**Item:** "
+                        f"{dispatch_item['name']}"
+                    )
 
-                    # -------------------------------------------------
-                    # SHOW CURRENT STOCK BEFORE TRANSACTION
-                    # -------------------------------------------------
+                    st.write(
+                        f"**Quantity:** "
+                        f"{dispatch_quantity:g} "
+                        f"{dispatch_item['unit']}"
+                    )
 
+                    st.write(
+                        f"**Weight:** "
+                        f"{dispatch_weight:,.2f} KG"
+                    )
+
+                    st.write(
+                        f"**Bags:** "
+                        f"{dispatch_bags:g}"
+                    )
+
+                with summary_right:
+
+                    st.write(
+                        f"**Material Value:** "
+                        f"₹{dispatch_billing:,.2f}"
+                    )
+
+                    st.write(
+                        f"**Transportation:** "
+                        f"₹{dispatch_transportation:,.2f}"
+                    )
+
+                    st.write(
+                        f"**Total Value:** "
+                        f"₹{dispatch_billing + dispatch_transportation:,.2f}"
+                    )
+
+                    st.write(
+                        f"**Stock Remaining:** "
+                        f"{remaining_qty:g} "
+                        f"{dispatch_item['unit']}"
+                    )
+
+                    st.write(
+                        f"**Weight Remaining:** "
+                        f"{remaining_weight:,.2f} KG"
+                    )
+
+                # -----------------------------------------------------
+                # SAVE DISPATCH
+                # -----------------------------------------------------
+
+                st.divider()
+
+                save_dispatch = st.button(
+                    "🚚 Confirm & Save Dispatch",
+                    type="primary",
+                    use_container_width=True,
+                    key="save_dispatch"
+                )
+
+                if save_dispatch:
+
+                    # Final validation against database
+                    # immediately before saving.
                     (
-                        incoming_qty,
-                        outgoing_qty,
-                        balance_qty,
-                        incoming_weight,
-                        outgoing_weight,
-                        balance_weight
-                    ) = stock_balance(item["id"])
+                        latest_in_qty,
+                        latest_out_qty,
+                        latest_available_qty,
+                        latest_in_weight,
+                        latest_out_weight,
+                        latest_available_weight
+                    ) = stock_balance(dispatch_item["id"])
 
-                    if direction == "OUT":
+                    if not dispatch_reference.strip():
 
-                        st.markdown("### Available Stock")
-
-                        s1, s2, s3 = st.columns(3)
-
-                        s1.metric(
-                            "Available Quantity",
-                            f"{balance_qty:g} {item['unit']}"
+                        st.error(
+                            "Dispatch / Challan No. is required."
                         )
 
-                        s2.metric(
-                            "Available Weight",
-                            f"{balance_weight:,.2f} KG"
+                    elif dispatch_quantity <= 0:
+
+                        st.error(
+                            "Dispatch quantity must be greater than zero."
                         )
 
-                        s3.metric(
-                            "Minimum Level",
-                            f"{float(item['minimum_level']):g}"
+                    elif dispatch_weight <= 0:
+
+                        st.error(
+                            "Dispatch weight must be greater than zero."
                         )
 
-                    # -------------------------------------------------
-                    # DOCUMENT / VEHICLE DETAILS
-                    # -------------------------------------------------
+                    elif dispatch_quantity > latest_available_qty:
 
-                    c1, c2, c3 = st.columns(3)
+                        st.error(
+                            f"🚫 Dispatch blocked: available stock is "
+                            f"only {latest_available_qty:g} "
+                            f"{dispatch_item['unit']}, but you entered "
+                            f"{dispatch_quantity:g}."
+                        )
 
-                    reference_no = c1.text_input(
-                        "Invoice / Challan / Gate Pass No. *"
-                    )
+                    elif dispatch_weight > latest_available_weight:
 
-                    vehicle_no = c2.text_input(
-                        "Vehicle No."
-                    )
+                        st.error(
+                            f"🚫 Dispatch blocked: available weight is "
+                            f"only {latest_available_weight:,.2f} KG, "
+                            f"but you entered "
+                            f"{dispatch_weight:,.2f} KG."
+                        )
 
-                    handler = c3.text_input(
-                        "Handled by / Driver"
-                    )
+                    else:
 
-                    # -------------------------------------------------
-                    # PHYSICAL STOCK DETAILS
-                    # -------------------------------------------------
+                        fingerprint = fp(
+                            dispatch_date,
+                            dispatch_item["id"],
+                            dispatch_party["id"],
+                            "OUT",
+                            dispatch_quantity,
+                            dispatch_bags,
+                            dispatch_weight,
+                            dispatch_reference
+                        )
 
-                    c1, c2, c3 = st.columns(3)
+                        data = {
+                            "movement_date": str(dispatch_date),
+                            "item_id": dispatch_item["id"],
+                            "party_id": dispatch_party["id"],
+                            "direction": "OUT",
+                            "quantity": dispatch_quantity,
+                            "bags": dispatch_bags,
+                            "weight_kg": dispatch_weight,
+                            "rate_per_kg": dispatch_rate,
+                            "transportation":
+                                dispatch_transportation,
+                            "billing_amount":
+                                dispatch_billing,
+                            "reference_no":
+                                dispatch_reference.strip(),
+                            "vehicle_no":
+                                dispatch_vehicle.strip() or None,
+                            "handled_by":
+                                dispatch_handler.strip() or None,
+                            "notes":
+                                dispatch_notes.strip() or None,
+                            "entered_by":
+                                str(user.id),
+                            "duplicate_fingerprint":
+                                fingerprint
+                        }
 
-                    quantity = c1.number_input(
-                        "Quantity / PCS",
-                        min_value=0.001,
-                        step=1.0
-                    )
+                        try:
 
-                    bags = c2.number_input(
-                        "No. of Bags",
-                        min_value=0.0,
-                        step=1.0
-                    )
-
-                    weight_kg = c3.number_input(
-                        "Weight (KG)",
-                        min_value=0.0,
-                        step=1.0
-                    )
-
-                    # -------------------------------------------------
-                    # COMMERCIAL DETAILS
-                    # -------------------------------------------------
-
-                    c1, c2, c3 = st.columns(3)
-
-                    rate_per_kg = c1.number_input(
-                        "Rate per KG (₹)",
-                        min_value=0.0,
-                        step=0.50
-                    )
-
-                    transportation = c2.number_input(
-                        "Transportation (₹)",
-                        min_value=0.0,
-                        step=1.0
-                    )
-
-                    notes = c3.text_input(
-                        "Notes"
-                    )
-
-                    # -------------------------------------------------
-                    # BILLING CALCULATION
-                    # -------------------------------------------------
-
-                    billing_amount = weight_kg * rate_per_kg
-
-                    st.markdown("### Transaction Summary")
-
-                    a, b, c = st.columns(3)
-
-                    a.metric(
-                        "Material Value",
-                        f"₹{billing_amount:,.2f}"
-                    )
-
-                    b.metric(
-                        "Transportation",
-                        f"₹{transportation:,.2f}"
-                    )
-
-                    c.metric(
-                        "Total Value",
-                        f"₹{billing_amount + transportation:,.2f}"
-                    )
-
-                    st.caption(
-                        "Material Value = Weight × Rate per KG. "
-                        "Transportation is recorded separately. "
-                        "Accounts/receivables will be connected later."
-                    )
-
-                    # -------------------------------------------------
-                    # SAVE
-                    # -------------------------------------------------
-
-                    save = st.form_submit_button(
-                        "Save Dispatch" if direction == "OUT"
-                        else "Save Receipt",
-                        type="primary"
-                    )
-
-                    if save:
-
-                        # -------------------------------------------------
-                        # VALIDATION 1 - REFERENCE
-                        # -------------------------------------------------
-
-                        if not reference_no.strip():
-
-                            st.error(
-                                "Invoice / Challan / Gate Pass No. "
-                                "is required."
+                            (
+                                supabase
+                                .table("stock_movements")
+                                .insert(data)
+                                .execute()
                             )
 
-                        # -------------------------------------------------
-                        # VALIDATION 2 - QUANTITY
-                        # -------------------------------------------------
-
-                        elif direction == "OUT" and quantity > balance_qty:
-
-                            st.error(
-                                f"Dispatch blocked: available stock is only "
-                                f"{balance_qty:g} {item['unit']}, but you "
-                                f"entered {quantity:g}."
+                            st.success(
+                                "🚚 Dispatch recorded successfully."
                             )
 
-                        # -------------------------------------------------
-                        # VALIDATION 3 - WEIGHT
-                        # -------------------------------------------------
-
-                        elif direction == "OUT" and weight_kg > balance_weight:
-
-                            st.error(
-                                f"Dispatch blocked: available weight is only "
-                                f"{balance_weight:,.2f} KG, but you entered "
-                                f"{weight_kg:,.2f} KG."
+                            st.info(
+                                f"Remaining stock: "
+                                f"{latest_available_qty - dispatch_quantity:g} "
+                                f"{dispatch_item['unit']} | "
+                                f"Remaining weight: "
+                                f"{latest_available_weight - dispatch_weight:,.2f} KG"
                             )
 
-                        # -------------------------------------------------
-                        # VALIDATION 4 - POSITIVE VALUES
-                        # -------------------------------------------------
+                            st.rerun()
 
-                        elif quantity <= 0:
+                        except Exception as e:
 
-                            st.error(
-                                "Quantity must be greater than zero."
-                            )
+                            error_text = str(e).lower()
 
-                        elif direction == "OUT" and weight_kg <= 0:
+                            if (
+                                "duplicate" in error_text
+                                or "unique" in error_text
+                            ):
 
-                            st.error(
-                                "Weight is required for an OUT / DISPATCH "
-                                "transaction."
-                            )
-
-                        else:
-
-                            # -------------------------------------------------
-                            # DUPLICATE FINGERPRINT
-                            # -------------------------------------------------
-
-                            fingerprint = fp(
-                                movement_date,
-                                item["id"],
-                                party["id"],
-                                direction,
-                                quantity,
-                                bags,
-                                weight_kg,
-                                reference_no
-                            )
-
-                            # -------------------------------------------------
-                            # DATABASE RECORD
-                            # -------------------------------------------------
-
-                            data = {
-                                "movement_date":
-                                    str(movement_date),
-
-                                "item_id":
-                                    item["id"],
-
-                                "party_id":
-                                    party["id"],
-
-                                "direction":
-                                    direction,
-
-                                "quantity":
-                                    quantity,
-
-                                "bags":
-                                    bags,
-
-                                "weight_kg":
-                                    weight_kg,
-
-                                "rate_per_kg":
-                                    rate_per_kg,
-
-                                "transportation":
-                                    transportation,
-
-                                "billing_amount":
-                                    billing_amount,
-
-                                "reference_no":
-                                    reference_no.strip(),
-
-                                "vehicle_no":
-                                    vehicle_no.strip() or None,
-
-                                "handled_by":
-                                    handler.strip() or None,
-
-                                "notes":
-                                    notes.strip() or None,
-
-                                "entered_by":
-                                    str(user.id),
-
-                                "duplicate_fingerprint":
-                                    fingerprint
-                            }
-
-                            # -------------------------------------------------
-                            # SAVE TO SUPABASE
-                            # -------------------------------------------------
-
-                            try:
-
-                                (
-                                    supabase
-                                    .table("stock_movements")
-                                    .insert(data)
-                                    .execute()
+                                st.error(
+                                    "Blocked: this dispatch appears "
+                                    "to have already been entered."
                                 )
 
-                                if direction == "OUT":
+                            else:
 
-                                    st.success(
-                                        "✅ Dispatch recorded successfully. "
-                                        "Stock has been updated."
-                                    )
-
-                                else:
-
-                                    st.success(
-                                        "✅ Stock receipt recorded "
-                                        "successfully."
-                                    )
-
-                                st.info(
-                                    f"{item['name']} | "
-                                    f"{quantity:g} {item['unit']} | "
-                                    f"{weight_kg:,.2f} KG | "
-                                    f"{party['name']}"
-                                )
-
-                            except Exception as e:
-
-                                error_text = str(e).lower()
-
-                                if (
-                                    "duplicate" in error_text
-                                    or "unique" in error_text
-                                ):
-
-                                    st.error(
-                                        "Blocked: this transaction appears "
-                                        "to have already been entered."
-                                    )
-
-                                else:
-
-                                    st.error(str(e))
+                                st.error(str(e))
 
 
     # -----------------------------------------------------------------
