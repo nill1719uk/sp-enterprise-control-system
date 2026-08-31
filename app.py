@@ -1233,15 +1233,369 @@ elif page == "Accounts":
 
     st.title("💰 Accounts")
 
-    st.write(
-        "Planned registers: Sales, Purchases, Expenses, Receipts, "
-        "Payments, Bank/Cash, Loans & EMI, GST and Documents."
+    st.caption(
+        "Central accounting control for S.P. Enterprise. "
+        "The Chart of Accounts is the foundation for future "
+        "sales, purchases, expenses, receipts, payments, banking "
+        "and factory accounting."
     )
 
-    st.warning(
-        "Accounts will be connected to the same Party and transaction "
-        "database in the next build phase."
-    )
+    # ================================================================
+    # ACCOUNTING NAVIGATION
+    # ================================================================
+
+    account_tab1, account_tab2 = st.tabs([
+        "📚 Chart of Accounts",
+        "🧾 Accounting Registers"
+    ])
+
+    # ================================================================
+    # TAB 1 - CHART OF ACCOUNTS
+    # ================================================================
+
+    with account_tab1:
+
+        st.subheader("📚 Chart of Accounts")
+
+        st.caption(
+            "Master list of all ledger accounts used by the business."
+        )
+
+        try:
+
+            accounts = (
+                supabase
+                .table("chart_of_accounts")
+                .select("*")
+                .order("account_name")
+                .execute()
+                .data
+            )
+
+        except Exception as e:
+
+            st.error(
+                "Unable to load Chart of Accounts."
+            )
+
+            st.code(str(e))
+
+            accounts = []
+
+        # ------------------------------------------------------------
+        # SUMMARY
+        # ------------------------------------------------------------
+
+        total_accounts = len(accounts)
+
+        account_types = {}
+
+        for account in accounts:
+
+            account_type = account.get("account_type") or "OTHER"
+
+            account_types[account_type] = (
+                account_types.get(account_type, 0) + 1
+            )
+
+        s1, s2, s3, s4 = st.columns(4)
+
+        s1.metric(
+            "Total Accounts",
+            total_accounts
+        )
+
+        s2.metric(
+            "Assets",
+            account_types.get("ASSET", 0)
+        )
+
+        s3.metric(
+            "Liabilities",
+            account_types.get("LIABILITY", 0)
+        )
+
+        s4.metric(
+            "Income / Expense",
+            account_types.get("INCOME", 0)
+            + account_types.get("EXPENSE", 0)
+        )
+
+        st.divider()
+
+        # ------------------------------------------------------------
+        # ACCOUNT SEARCH / FILTER
+        # ------------------------------------------------------------
+
+        f1, f2 = st.columns(2)
+
+        search_account = f1.text_input(
+            "🔎 Search Account",
+            placeholder="Search by account name or code",
+            key="account_search"
+        )
+
+        available_types = sorted(
+            list(
+                set(
+                    str(x.get("account_type"))
+                    for x in accounts
+                    if x.get("account_type")
+                )
+            )
+        )
+
+        type_filter = f2.selectbox(
+            "Account Type",
+            ["ALL"] + available_types,
+            key="account_type_filter"
+        )
+
+        # ------------------------------------------------------------
+        # DISPLAY ACCOUNTS
+        # ------------------------------------------------------------
+
+        filtered_accounts = []
+
+        for account in accounts:
+
+            code = str(account.get("unit_code") or "")
+            name = str(account.get("account_name") or "")
+            account_type = str(
+                account.get("account_type") or ""
+            )
+
+            search_text = (
+                code + " " + name
+            ).lower()
+
+            if search_account.strip():
+
+                if search_account.lower().strip() not in search_text:
+                    continue
+
+            if (
+                type_filter != "ALL"
+                and account_type != type_filter
+            ):
+                continue
+
+            filtered_accounts.append({
+                "Code": account.get("unit_code"),
+                "Account Name": account.get("account_name"),
+                "Type": account.get("account_type"),
+                "Parent ID": account.get("parent_id"),
+                "Opening Balance": account.get("opening_balance")
+            })
+
+        st.dataframe(
+            filtered_accounts,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # ------------------------------------------------------------
+        # ADD NEW ACCOUNT
+        # ------------------------------------------------------------
+
+        with st.expander("➕ Create New Account"):
+
+            with st.form("new_chart_account"):
+
+                c1, c2 = st.columns(2)
+
+                new_code = c1.text_input(
+                    "Account Code",
+                    placeholder="Example: 1100"
+                )
+
+                new_name = c2.text_input(
+                    "Account Name",
+                    placeholder="Example: SBI Current Account"
+                )
+
+                c1, c2, c3 = st.columns(3)
+
+                new_type = c1.selectbox(
+                    "Account Type",
+                    [
+                        "ASSET",
+                        "LIABILITY",
+                        "EQUITY",
+                        "INCOME",
+                        "EXPENSE"
+                    ]
+                )
+
+                parent_options = {
+                    "No Parent": None
+                }
+
+                for account in accounts:
+
+                    account_id = account.get("id")
+
+                    if account_id:
+
+                        label = (
+                            f'{account.get("unit_code") or ""} - '
+                            f'{account.get("account_name") or ""}'
+                        )
+
+                        parent_options[label] = account_id
+
+                new_parent = c2.selectbox(
+                    "Parent Account",
+                    list(parent_options.keys())
+                )
+
+                new_opening = c3.number_input(
+                    "Opening Balance (₹)",
+                    min_value=0.0,
+                    step=100.0
+                )
+
+                create_account = st.form_submit_button(
+                    "Create Account",
+                    type="primary"
+                )
+
+                if create_account:
+
+                    if not new_code.strip():
+
+                        st.error(
+                            "Account code is required."
+                        )
+
+                    elif not new_name.strip():
+
+                        st.error(
+                            "Account name is required."
+                        )
+
+                    else:
+
+                        duplicate = any(
+                            str(x.get("unit_code") or "")
+                            .strip()
+                            .upper()
+                            == new_code.strip().upper()
+                            or
+                            str(x.get("account_name") or "")
+                            .strip()
+                            .upper()
+                            == new_name.strip().upper()
+                            for x in accounts
+                        )
+
+                        if duplicate:
+
+                            st.error(
+                                "An account with this code or "
+                                "account name already exists."
+                            )
+
+                        else:
+
+                            account_data = {
+                                "unit_code":
+                                    new_code.strip(),
+
+                                "account_name":
+                                    new_name.strip(),
+
+                                "account_type":
+                                    new_type,
+
+                                "parent_id":
+                                    parent_options[new_parent],
+
+                                "opening_balance":
+                                    new_opening
+                            }
+
+                            try:
+
+                                (
+                                    supabase
+                                    .table("chart_of_accounts")
+                                    .insert(account_data)
+                                    .execute()
+                                )
+
+                                st.success(
+                                    "Account created successfully."
+                                )
+
+                                st.rerun()
+
+                            except Exception as e:
+
+                                st.error(
+                                    "Unable to create account."
+                                )
+
+                                st.code(str(e))
+
+    # ================================================================
+    # TAB 2 - ACCOUNTING REGISTERS
+    # ================================================================
+
+    with account_tab2:
+
+        st.subheader("🧾 Accounting Registers")
+
+        st.info(
+            "The Chart of Accounts is now connected. "
+            "Sales, Purchases, Expenses, Receipts, Payments, "
+            "Cash/Bank, Loans & EMI and General Ledger will be "
+            "connected to these accounts in the next accounting build."
+        )
+
+        r1, r2, r3 = st.columns(3)
+
+        r1.metric(
+            "Sales",
+            "Coming next"
+        )
+
+        r2.metric(
+            "Purchases",
+            "Coming next"
+        )
+
+        r3.metric(
+            "Expenses",
+            "Coming next"
+        )
+
+        st.divider()
+
+        r4, r5, r6 = st.columns(3)
+
+        r4.metric(
+            "Receipts",
+            "Coming next"
+        )
+
+        r5.metric(
+            "Payments",
+            "Coming next"
+        )
+
+        r6.metric(
+            "Cash / Bank",
+            "Coming next"
+        )
+
+        st.divider()
+
+        st.caption(
+            "All accounting registers will use the same "
+            "business parties, chart of accounts and transaction "
+            "database rather than creating isolated records."
+        )
 
 
 # ---------------------------------------------------------------------
