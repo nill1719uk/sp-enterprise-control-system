@@ -1830,62 +1830,442 @@ elif page == "Accounts":
 
                                 st.code(str(e))
 
-    # ================================================================
+        # ================================================================
     # TAB 2 - ACCOUNTING REGISTERS
     # ================================================================
 
     with account_tab2:
 
-        st.subheader("🧾 Accounting Registers")
+        st.subheader("🧾 Sales Register")
 
-        st.info(
-            "These registers will use the same Chart of Accounts, "
-            "business parties and transaction database."
+        st.caption(
+            "Record and manage sales invoices for S.P. Enterprise."
         )
 
-        r1, r2, r3 = st.columns(3)
+        # ------------------------------------------------------------
+        # LOAD SALES INVOICES
+        # ------------------------------------------------------------
 
-        r1.metric(
-            "Sales",
-            "Coming next"
+        try:
+
+            sales_invoices = (
+                supabase
+                .table("sales_invoices")
+                .select("*")
+                .order("invoice_date", desc=True)
+                .execute()
+                .data
+            )
+
+        except Exception as e:
+
+            st.error("Unable to load Sales Register.")
+            st.code(str(e))
+            sales_invoices = []
+
+        # ------------------------------------------------------------
+        # SUMMARY
+        # ------------------------------------------------------------
+
+        total_sales = sum(
+            float(x.get("total_amount") or 0)
+            for x in sales_invoices
         )
 
-        r2.metric(
-            "Purchases",
-            "Coming next"
+        total_received = sum(
+            float(x.get("amount_received") or 0)
+            for x in sales_invoices
         )
 
-        r3.metric(
-            "Expenses",
-            "Coming next"
+        total_balance = sum(
+            float(x.get("balance_amount") or 0)
+            for x in sales_invoices
+        )
+
+        paid_invoices = sum(
+            1
+            for x in sales_invoices
+            if x.get("payment_status") == "PAID"
+        )
+
+        s1, s2, s3, s4 = st.columns(4)
+
+        s1.metric(
+            "Total Invoices",
+            len(sales_invoices)
+        )
+
+        s2.metric(
+            "Total Sales",
+            f"₹{total_sales:,.2f}"
+        )
+
+        s3.metric(
+            "Received",
+            f"₹{total_received:,.2f}"
+        )
+
+        s4.metric(
+            "Outstanding",
+            f"₹{total_balance:,.2f}"
         )
 
         st.divider()
 
-        r4, r5, r6 = st.columns(3)
+        # ------------------------------------------------------------
+        # CREATE SALES INVOICE
+        # ------------------------------------------------------------
 
-        r4.metric(
-            "Receipts",
-            "Coming next"
+        with st.expander("➕ Create Sales Invoice", expanded=False):
+
+            with st.form("create_sales_invoice"):
+
+                c1, c2, c3 = st.columns(3)
+
+                invoice_number = c1.text_input(
+                    "Invoice Number",
+                    placeholder="Example: INV-0001"
+                )
+
+                invoice_date = c2.date_input(
+                    "Invoice Date"
+                )
+
+                due_date = c3.date_input(
+                    "Due Date"
+                )
+
+                c1, c2 = st.columns(2)
+
+                customer_name = c1.text_input(
+                    "Customer Name",
+                    placeholder="Enter customer name"
+                )
+
+                invoice_type = c2.selectbox(
+                    "Invoice Type",
+                    [
+                        "TAX_INVOICE",
+                        "BILL_OF_SUPPLY",
+                        "CREDIT_NOTE"
+                    ]
+                )
+
+                st.markdown("### 💰 Invoice Amount")
+
+                c1, c2, c3 = st.columns(3)
+
+                subtotal = c1.number_input(
+                    "Subtotal (₹)",
+                    min_value=0.0,
+                    step=100.0
+                )
+
+                discount_amount = c2.number_input(
+                    "Discount (₹)",
+                    min_value=0.0,
+                    step=100.0
+                )
+
+                gst_rate = c3.number_input(
+                    "GST Rate (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    step=1.0
+                )
+
+                taxable_amount = max(
+                    subtotal - discount_amount,
+                    0
+                )
+
+                c1, c2, c3 = st.columns(3)
+
+                cgst_amount = 0.0
+                sgst_amount = 0.0
+                igst_amount = 0.0
+
+                gst_amount = (
+                    taxable_amount * gst_rate / 100
+                )
+
+                tax_type = st.selectbox(
+                    "GST Type",
+                    [
+                        "CGST + SGST",
+                        "IGST",
+                        "NO GST"
+                    ]
+                )
+
+                if tax_type == "CGST + SGST":
+
+                    cgst_amount = gst_amount / 2
+                    sgst_amount = gst_amount / 2
+
+                elif tax_type == "IGST":
+
+                    igst_amount = gst_amount
+
+                total_amount = (
+                    taxable_amount
+                    + cgst_amount
+                    + sgst_amount
+                    + igst_amount
+                )
+
+                st.metric(
+                    "Invoice Total",
+                    f"₹{total_amount:,.2f}"
+                )
+
+                amount_received = st.number_input(
+                    "Amount Received (₹)",
+                    min_value=0.0,
+                    max_value=float(total_amount),
+                    step=100.0
+                )
+
+                balance_amount = max(
+                    total_amount - amount_received,
+                    0
+                )
+
+                if amount_received <= 0:
+
+                    payment_status = "UNPAID"
+
+                elif amount_received < total_amount:
+
+                    payment_status = "PARTIAL"
+
+                else:
+
+                    payment_status = "PAID"
+
+                st.caption(
+                    f"Payment Status: **{payment_status}**  |  "
+                    f"Outstanding: **₹{balance_amount:,.2f}**"
+                )
+
+                notes = st.text_area(
+                    "Notes",
+                    placeholder="Optional notes"
+                )
+
+                save_invoice = st.form_submit_button(
+                    "💾 Save Sales Invoice",
+                    type="primary"
+                )
+
+                if save_invoice:
+
+                    if not invoice_number.strip():
+
+                        st.error(
+                            "Invoice number is required."
+                        )
+
+                    elif not customer_name.strip():
+
+                        st.error(
+                            "Customer name is required."
+                        )
+
+                    elif subtotal <= 0:
+
+                        st.error(
+                            "Invoice subtotal must be greater than zero."
+                        )
+
+                    else:
+
+                        duplicate_invoice = any(
+                            str(x.get("invoice_number") or "")
+                            .strip()
+                            .upper()
+                            == invoice_number.strip().upper()
+                            for x in sales_invoices
+                        )
+
+                        if duplicate_invoice:
+
+                            st.error(
+                                "This invoice number already exists."
+                            )
+
+                        else:
+
+                            invoice_data = {
+
+                                "invoice_number":
+                                    invoice_number.strip(),
+
+                                "invoice_date":
+                                    str(invoice_date),
+
+                                "customer_name":
+                                    customer_name.strip(),
+
+                                "invoice_type":
+                                    invoice_type,
+
+                                "payment_status":
+                                    payment_status,
+
+                                "subtotal":
+                                    taxable_amount,
+
+                                "discount_amount":
+                                    discount_amount,
+
+                                "cgst_amount":
+                                    cgst_amount,
+
+                                "sgst_amount":
+                                    sgst_amount,
+
+                                "igst_amount":
+                                    igst_amount,
+
+                                "round_off":
+                                    0,
+
+                                "total_amount":
+                                    total_amount,
+
+                                "amount_received":
+                                    amount_received,
+
+                                "balance_amount":
+                                    balance_amount,
+
+                                "due_date":
+                                    str(due_date),
+
+                                "notes":
+                                    notes.strip()
+                            }
+
+                            try:
+
+                                (
+                                    supabase
+                                    .table("sales_invoices")
+                                    .insert(invoice_data)
+                                    .execute()
+                                )
+
+                                st.success(
+                                    "Sales invoice created successfully."
+                                )
+
+                                st.rerun()
+
+                            except Exception as e:
+
+                                st.error(
+                                    "Unable to create sales invoice."
+                                )
+
+                                st.code(str(e))
+
+        st.divider()
+
+        # ------------------------------------------------------------
+        # SEARCH / FILTER
+        # ------------------------------------------------------------
+
+        f1, f2 = st.columns(2)
+
+        search_invoice = f1.text_input(
+            "🔎 Search Invoice",
+            placeholder="Search invoice number or customer"
         )
 
-        r5.metric(
-            "Payments",
-            "Coming next"
+        status_filter = f2.selectbox(
+            "Payment Status",
+            [
+                "ALL",
+                "UNPAID",
+                "PARTIAL",
+                "PAID",
+                "CANCELLED"
+            ]
         )
 
-        r6.metric(
-            "Cash / Bank",
-            "Coming next"
-        )
+        # ------------------------------------------------------------
+        # DISPLAY SALES REGISTER
+        # ------------------------------------------------------------
+
+        filtered_sales = []
+
+        for invoice in sales_invoices:
+
+            invoice_no = str(
+                invoice.get("invoice_number") or ""
+            )
+
+            customer = str(
+                invoice.get("customer_name") or ""
+            )
+
+            status = str(
+                invoice.get("payment_status") or ""
+            )
+
+            search_text = (
+                invoice_no + " " + customer
+            ).lower()
+
+            if search_invoice.strip():
+
+                if search_invoice.lower().strip() not in search_text:
+                    continue
+
+            if (
+                status_filter != "ALL"
+                and status != status_filter
+            ):
+
+                continue
+
+            filtered_sales.append({
+                "Invoice No.": invoice_no,
+                "Date": invoice.get("invoice_date"),
+                "Customer": customer,
+                "Subtotal": invoice.get("subtotal"),
+                "GST": (
+                    float(invoice.get("cgst_amount") or 0)
+                    + float(invoice.get("sgst_amount") or 0)
+                    + float(invoice.get("igst_amount") or 0)
+                ),
+                "Total": invoice.get("total_amount"),
+                "Received": invoice.get("amount_received"),
+                "Balance": invoice.get("balance_amount"),
+                "Status": status
+            })
+
+        if filtered_sales:
+
+            st.dataframe(
+                filtered_sales,
+                use_container_width=True,
+                hide_index=True
+            )
+
+        else:
+
+            st.info(
+                "No sales invoices found."
+            )
 
         st.divider()
 
         st.caption(
-            "The accounting system will eventually connect "
-            "sales, purchases, expenses, receipts, payments, "
-            "cash, bank transactions, loans, GST and the "
-            "General Ledger to this Chart of Accounts."
+            "Sales invoice items, stock deduction, customer ledger, "
+            "GST accounting and automatic journal entries will be "
+            "connected to this Sales Register in the next build."
         )
 
 # ---------------------------------------------------------------------
