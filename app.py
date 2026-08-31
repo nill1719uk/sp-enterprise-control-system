@@ -1808,6 +1808,25 @@ elif page == "Accounts":
 
             st.subheader("Invoice Item")
 
+            # --------------------------------------------------------
+            # LOAD STOCK ITEMS
+            # --------------------------------------------------------
+
+            try:
+                items_response = (
+                    supabase
+                    .table("stock_items")
+                    .select("*")
+                    .order("name")
+                    .execute()
+                )
+
+                items = items_response.data or []
+
+            except Exception as e:
+                items = []
+                st.warning(f"Could not load stock items: {e}")
+
             sales_item_options = {
                 f'{x["name"]} ({x["unit"]})': x
                 for x in items
