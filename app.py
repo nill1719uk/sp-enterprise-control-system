@@ -1235,9 +1235,9 @@ elif page == "Accounts":
 
     st.caption(
         "Central accounting control for S.P. Enterprise. "
-        "The Chart of Accounts is the foundation for future "
-        "sales, purchases, expenses, receipts, payments, banking "
-        "and factory accounting."
+        "This accounting system covers the complete business operation, "
+        "including factory, office, trading, banking, loans, taxation "
+        "and general business expenses."
     )
 
     # ================================================================
@@ -1250,6 +1250,167 @@ elif page == "Accounts":
     ])
 
     # ================================================================
+    # STANDARD CHART OF ACCOUNTS
+    # ================================================================
+
+    STANDARD_ACCOUNTS = [
+
+        # ------------------------------------------------------------
+        # ASSETS
+        # ------------------------------------------------------------
+
+        ("1000", "ASSETS", "ASSET", None),
+
+        ("1100", "Cash in Hand", "ASSET", "1000"),
+        ("1110", "Petty Cash", "ASSET", "1000"),
+
+        ("1200", "Bank Accounts", "ASSET", "1000"),
+        ("1210", "SBI Current Account", "ASSET", "1200"),
+        ("1220", "Other Bank Account", "ASSET", "1200"),
+
+        ("1300", "Accounts Receivable / Debtors", "ASSET", "1000"),
+        ("1310", "Trade Receivables", "ASSET", "1300"),
+        ("1320", "Other Receivables", "ASSET", "1300"),
+
+        ("1400", "Inventory", "ASSET", "1000"),
+        ("1410", "Raw Materials", "ASSET", "1400"),
+        ("1420", "Work in Progress", "ASSET", "1400"),
+        ("1430", "Finished Goods", "ASSET", "1400"),
+        ("1440", "Consumable Stores", "ASSET", "1400"),
+
+        ("1500", "Advances", "ASSET", "1000"),
+        ("1510", "Advance to Suppliers", "ASSET", "1500"),
+        ("1520", "Employee Advances", "ASSET", "1500"),
+
+        ("1600", "Fixed Assets", "ASSET", "1000"),
+        ("1610", "Factory Building", "ASSET", "1600"),
+        ("1620", "Office Equipment", "ASSET", "1600"),
+        ("1630", "Plant & Machinery", "ASSET", "1600"),
+        ("1640", "Furniture & Fixtures", "ASSET", "1600"),
+        ("1650", "Computers & IT Equipment", "ASSET", "1600"),
+        ("1660", "Vehicles", "ASSET", "1600"),
+
+        ("1700", "Security Deposits", "ASSET", "1000"),
+
+        # ------------------------------------------------------------
+        # LIABILITIES
+        # ------------------------------------------------------------
+
+        ("2000", "LIABILITIES", "LIABILITY", None),
+
+        ("2100", "Accounts Payable / Creditors", "LIABILITY", "2000"),
+        ("2110", "Trade Payables", "LIABILITY", "2100"),
+        ("2120", "Other Payables", "LIABILITY", "2100"),
+
+        ("2200", "Loans & Borrowings", "LIABILITY", "2000"),
+        ("2210", "Bank Loans", "LIABILITY", "2200"),
+        ("2220", "Working Capital Loan", "LIABILITY", "2200"),
+        ("2230", "Vehicle / Asset Loan", "LIABILITY", "2200"),
+
+        ("2300", "Statutory Liabilities", "LIABILITY", "2000"),
+        ("2310", "GST Payable", "LIABILITY", "2300"),
+        ("2320", "TDS Payable", "LIABILITY", "2300"),
+        ("2330", "Professional Tax Payable", "LIABILITY", "2300"),
+
+        ("2400", "Employee Liabilities", "LIABILITY", "2000"),
+        ("2410", "Salary Payable", "LIABILITY", "2400"),
+
+        # ------------------------------------------------------------
+        # EQUITY
+        # ------------------------------------------------------------
+
+        ("3000", "EQUITY / CAPITAL", "EQUITY", None),
+
+        ("3100", "Owner's Capital", "EQUITY", "3000"),
+        ("3200", "Owner's Drawings", "EQUITY", "3000"),
+        ("3300", "Retained Earnings", "EQUITY", "3000"),
+
+        # ------------------------------------------------------------
+        # INCOME
+        # ------------------------------------------------------------
+
+        ("4000", "INCOME", "INCOME", None),
+
+        ("4100", "Sales", "INCOME", "4000"),
+        ("4110", "Sales - Finished Goods", "INCOME", "4100"),
+        ("4120", "Sales - Other Products", "INCOME", "4100"),
+
+        ("4200", "Other Operating Income", "INCOME", "4000"),
+        ("4300", "Other Income", "INCOME", "4000"),
+        ("4310", "Interest Income", "INCOME", "4300"),
+        ("4320", "Miscellaneous Income", "INCOME", "4300"),
+
+        # ------------------------------------------------------------
+        # COST OF GOODS / DIRECT COSTS
+        # ------------------------------------------------------------
+
+        ("5000", "COST OF GOODS SOLD", "EXPENSE", None),
+
+        ("5100", "Purchases", "EXPENSE", "5000"),
+        ("5110", "Raw Material Purchases", "EXPENSE", "5100"),
+        ("5120", "Consumable Purchases", "EXPENSE", "5100"),
+
+        ("5200", "Direct Factory Costs", "EXPENSE", "5000"),
+        ("5210", "Factory Wages", "EXPENSE", "5200"),
+        ("5220", "Production Expenses", "EXPENSE", "5200"),
+        ("5230", "Factory Electricity", "EXPENSE", "5200"),
+        ("5240", "Factory Fuel", "EXPENSE", "5200"),
+        ("5250", "Factory Repairs & Maintenance", "EXPENSE", "5200"),
+
+        ("5300", "Carriage & Freight Inward", "EXPENSE", "5000"),
+        ("5310", "Transportation Inward", "EXPENSE", "5300"),
+
+        # ------------------------------------------------------------
+        # OPERATING EXPENSES
+        # ------------------------------------------------------------
+
+        ("6000", "OPERATING EXPENSES", "EXPENSE", None),
+
+        ("6100", "Employee Costs", "EXPENSE", "6000"),
+        ("6110", "Salaries & Wages", "EXPENSE", "6100"),
+        ("6120", "Staff Welfare", "EXPENSE", "6100"),
+        ("6130", "Bonus & Incentives", "EXPENSE", "6100"),
+
+        ("6200", "Office Expenses", "EXPENSE", "6000"),
+        ("6210", "Office Rent", "EXPENSE", "6200"),
+        ("6220", "Office Electricity", "EXPENSE", "6200"),
+        ("6230", "Telephone & Internet", "EXPENSE", "6200"),
+        ("6240", "Stationery & Printing", "EXPENSE", "6200"),
+        ("6250", "Office Maintenance", "EXPENSE", "6200"),
+
+        ("6300", "Transportation & Logistics", "EXPENSE", "6000"),
+        ("6310", "Transportation Outward", "EXPENSE", "6300"),
+        ("6320", "Vehicle Running Expenses", "EXPENSE", "6300"),
+        ("6330", "Fuel Expenses", "EXPENSE", "6300"),
+
+        ("6400", "Professional & Compliance Expenses", "EXPENSE", "6000"),
+        ("6410", "Legal & Professional Fees", "EXPENSE", "6400"),
+        ("6420", "Accounting & Audit Fees", "EXPENSE", "6400"),
+        ("6430", "Consultancy Fees", "EXPENSE", "6400"),
+
+        ("6500", "Banking & Finance Costs", "EXPENSE", "6000"),
+        ("6510", "Bank Charges", "EXPENSE", "6500"),
+        ("6520", "Loan Interest", "EXPENSE", "6500"),
+        ("6530", "Other Finance Costs", "EXPENSE", "6500"),
+
+        ("6600", "Repairs & Maintenance", "EXPENSE", "6000"),
+        ("6700", "Insurance", "EXPENSE", "6000"),
+        ("6800", "Depreciation", "EXPENSE", "6000"),
+        ("6900", "Miscellaneous Expenses", "EXPENSE", "6000"),
+
+        # ------------------------------------------------------------
+        # TAX / GST EXPENSES
+        # ------------------------------------------------------------
+
+        ("7000", "TAX & GOVERNMENT EXPENSES", "EXPENSE", None),
+
+        ("7100", "GST / Tax Adjustments", "EXPENSE", "7000"),
+        ("7200", "Income Tax", "EXPENSE", "7000"),
+        ("7300", "Professional Tax", "EXPENSE", "7000"),
+        ("7400", "Late Fees & Penalties", "EXPENSE", "7000")
+    ]
+
+    # ================================================================
     # TAB 1 - CHART OF ACCOUNTS
     # ================================================================
 
@@ -1258,7 +1419,7 @@ elif page == "Accounts":
         st.subheader("📚 Chart of Accounts")
 
         st.caption(
-            "Master list of all ledger accounts used by the business."
+            "Master list of all ledger accounts used by S.P. Enterprise."
         )
 
         try:
@@ -1267,19 +1428,15 @@ elif page == "Accounts":
                 supabase
                 .table("chart_of_accounts")
                 .select("*")
-                .order("account_name")
+                .order("unit_code")
                 .execute()
                 .data
             )
 
         except Exception as e:
 
-            st.error(
-                "Unable to load Chart of Accounts."
-            )
-
+            st.error("Unable to load Chart of Accounts.")
             st.code(str(e))
-
             accounts = []
 
         # ------------------------------------------------------------
@@ -1298,7 +1455,7 @@ elif page == "Accounts":
                 account_types.get(account_type, 0) + 1
             )
 
-        s1, s2, s3, s4 = st.columns(4)
+        s1, s2, s3, s4, s5 = st.columns(5)
 
         s1.metric(
             "Total Accounts",
@@ -1316,6 +1473,11 @@ elif page == "Accounts":
         )
 
         s4.metric(
+            "Equity",
+            account_types.get("EQUITY", 0)
+        )
+
+        s5.metric(
             "Income / Expense",
             account_types.get("INCOME", 0)
             + account_types.get("EXPENSE", 0)
@@ -1324,7 +1486,132 @@ elif page == "Accounts":
         st.divider()
 
         # ------------------------------------------------------------
-        # ACCOUNT SEARCH / FILTER
+        # INITIALIZE STANDARD ACCOUNTS
+        # ------------------------------------------------------------
+
+        with st.expander("⚙️ Initialize S.P. Enterprise Chart of Accounts"):
+
+            st.write(
+                "This will create the standard accounting structure for "
+                "the complete business. Existing accounts will not be "
+                "duplicated."
+            )
+
+            if st.button(
+                "🚀 Initialize Standard Chart of Accounts",
+                type="primary",
+                use_container_width=True
+            ):
+
+                try:
+
+                    # Reload current accounts
+                    existing = (
+                        supabase
+                        .table("chart_of_accounts")
+                        .select("*")
+                        .execute()
+                        .data
+                    )
+
+                    code_to_id = {}
+
+                    for account in existing:
+
+                        code = str(
+                            account.get("unit_code") or ""
+                        ).strip()
+
+                        if code and account.get("id"):
+                            code_to_id[code] = account["id"]
+
+                    created = 0
+                    skipped = 0
+
+                    # ------------------------------------------------
+                    # Create accounts in hierarchy order
+                    # ------------------------------------------------
+
+                    for code, name, account_type, parent_code in STANDARD_ACCOUNTS:
+
+                        # Already exists
+                        if code in code_to_id:
+
+                            skipped += 1
+                            continue
+
+                        parent_id = None
+
+                        if parent_code:
+
+                            parent_id = code_to_id.get(parent_code)
+
+                            if not parent_id:
+                                raise Exception(
+                                    f"Parent account {parent_code} "
+                                    f"was not found for {code} - {name}."
+                                )
+
+                        account_data = {
+                            "unit_code": code,
+                            "account_name": name,
+                            "account_type": account_type,
+                            "parent_id": parent_id,
+                            "opening_balance": 0
+                        }
+
+                        result = (
+                            supabase
+                            .table("chart_of_accounts")
+                            .insert(account_data)
+                            .execute()
+                        )
+
+                        inserted = result.data
+
+                        if inserted:
+
+                            new_id = inserted[0].get("id")
+
+                            if new_id:
+                                code_to_id[code] = new_id
+
+                        else:
+
+                            # Fallback: reload inserted account
+                            check = (
+                                supabase
+                                .table("chart_of_accounts")
+                                .select("id")
+                                .eq("unit_code", code)
+                                .limit(1)
+                                .execute()
+                                .data
+                            )
+
+                            if check:
+                                code_to_id[code] = check[0]["id"]
+
+                        created += 1
+
+                    st.success(
+                        f"Chart of Accounts initialized successfully. "
+                        f"{created} accounts created and "
+                        f"{skipped} existing accounts skipped."
+                    )
+
+                    st.rerun()
+
+                except Exception as e:
+
+                    st.error(
+                        "Unable to initialize the Chart of Accounts."
+                    )
+
+                    st.code(str(e))
+
+        # ------------------------------------------------------------
+        # SEARCH / FILTER
         # ------------------------------------------------------------
 
         f1, f2 = st.columns(2)
@@ -1359,8 +1646,14 @@ elif page == "Accounts":
 
         for account in accounts:
 
-            code = str(account.get("unit_code") or "")
-            name = str(account.get("account_name") or "")
+            code = str(
+                account.get("unit_code") or ""
+            )
+
+            name = str(
+                account.get("account_name") or ""
+            )
+
             account_type = str(
                 account.get("account_type") or ""
             )
@@ -1406,12 +1699,12 @@ elif page == "Accounts":
 
                 new_code = c1.text_input(
                     "Account Code",
-                    placeholder="Example: 1100"
+                    placeholder="Example: 1210"
                 )
 
                 new_name = c2.text_input(
                     "Account Name",
-                    placeholder="Example: SBI Current Account"
+                    placeholder="Example: HDFC Current Account"
                 )
 
                 c1, c2, c3 = st.columns(3)
@@ -1483,8 +1776,7 @@ elif page == "Accounts":
                             == new_code.strip().upper()
                             or
                             str(x.get("account_name") or "")
-                            .strip()
-                            .upper()
+                            .strip().upper()
                             == new_name.strip().upper()
                             for x in accounts
                         )
@@ -1547,10 +1839,8 @@ elif page == "Accounts":
         st.subheader("🧾 Accounting Registers")
 
         st.info(
-            "The Chart of Accounts is now connected. "
-            "Sales, Purchases, Expenses, Receipts, Payments, "
-            "Cash/Bank, Loans & EMI and General Ledger will be "
-            "connected to these accounts in the next accounting build."
+            "These registers will use the same Chart of Accounts, "
+            "business parties and transaction database."
         )
 
         r1, r2, r3 = st.columns(3)
@@ -1592,11 +1882,11 @@ elif page == "Accounts":
         st.divider()
 
         st.caption(
-            "All accounting registers will use the same "
-            "business parties, chart of accounts and transaction "
-            "database rather than creating isolated records."
+            "The accounting system will eventually connect "
+            "sales, purchases, expenses, receipts, payments, "
+            "cash, bank transactions, loans, GST and the "
+            "General Ledger to this Chart of Accounts."
         )
-
 
 # ---------------------------------------------------------------------
 # DOCUMENTS
