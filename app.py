@@ -1234,184 +1234,24 @@ elif page == "Accounts":
     st.title("💰 Accounts")
 
     st.caption(
-        "Central accounting control for S.P. Enterprise. "
-        "This accounting system covers the complete business operation, "
-        "including factory, office, trading, banking, loans, taxation "
-        "and general business expenses."
+        "Central accounting control for S.P. Enterprise — covering "
+        "factory, office, purchases, sales, expenses, banking and "
+        "financial records."
     )
 
     # ================================================================
     # ACCOUNTING NAVIGATION
     # ================================================================
 
-    account_tab1, account_tab2 = st.tabs([
+    account_tab1, account_tab2, account_tab3 = st.tabs([
         "📚 Chart of Accounts",
-        "🧾 Accounting Registers"
+        "🧾 Sales Register",
+        "📒 Accounting Registers"
     ])
 
-    # ================================================================
-    # STANDARD CHART OF ACCOUNTS
-    # ================================================================
-
-    STANDARD_ACCOUNTS = [
-
-        # ------------------------------------------------------------
-        # ASSETS
-        # ------------------------------------------------------------
-
-        ("1000", "ASSETS", "ASSET", None),
-
-        ("1100", "Cash in Hand", "ASSET", "1000"),
-        ("1110", "Petty Cash", "ASSET", "1000"),
-
-        ("1200", "Bank Accounts", "ASSET", "1000"),
-        ("1210", "SBI Current Account", "ASSET", "1200"),
-        ("1220", "Other Bank Account", "ASSET", "1200"),
-
-        ("1300", "Accounts Receivable / Debtors", "ASSET", "1000"),
-        ("1310", "Trade Receivables", "ASSET", "1300"),
-        ("1320", "Other Receivables", "ASSET", "1300"),
-
-        ("1400", "Inventory", "ASSET", "1000"),
-        ("1410", "Raw Materials", "ASSET", "1400"),
-        ("1420", "Work in Progress", "ASSET", "1400"),
-        ("1430", "Finished Goods", "ASSET", "1400"),
-        ("1440", "Consumable Stores", "ASSET", "1400"),
-
-        ("1500", "Advances", "ASSET", "1000"),
-        ("1510", "Advance to Suppliers", "ASSET", "1500"),
-        ("1520", "Employee Advances", "ASSET", "1500"),
-
-        ("1600", "Fixed Assets", "ASSET", "1000"),
-        ("1610", "Factory Building", "ASSET", "1600"),
-        ("1620", "Office Equipment", "ASSET", "1600"),
-        ("1630", "Plant & Machinery", "ASSET", "1600"),
-        ("1640", "Furniture & Fixtures", "ASSET", "1600"),
-        ("1650", "Computers & IT Equipment", "ASSET", "1600"),
-        ("1660", "Vehicles", "ASSET", "1600"),
-
-        ("1700", "Security Deposits", "ASSET", "1000"),
-
-        # ------------------------------------------------------------
-        # LIABILITIES
-        # ------------------------------------------------------------
-
-        ("2000", "LIABILITIES", "LIABILITY", None),
-
-        ("2100", "Accounts Payable / Creditors", "LIABILITY", "2000"),
-        ("2110", "Trade Payables", "LIABILITY", "2100"),
-        ("2120", "Other Payables", "LIABILITY", "2100"),
-
-        ("2200", "Loans & Borrowings", "LIABILITY", "2000"),
-        ("2210", "Bank Loans", "LIABILITY", "2200"),
-        ("2220", "Working Capital Loan", "LIABILITY", "2200"),
-        ("2230", "Vehicle / Asset Loan", "LIABILITY", "2200"),
-
-        ("2300", "Statutory Liabilities", "LIABILITY", "2000"),
-        ("2310", "GST Payable", "LIABILITY", "2300"),
-        ("2320", "TDS Payable", "LIABILITY", "2300"),
-        ("2330", "Professional Tax Payable", "LIABILITY", "2300"),
-
-        ("2400", "Employee Liabilities", "LIABILITY", "2000"),
-        ("2410", "Salary Payable", "LIABILITY", "2400"),
-
-        # ------------------------------------------------------------
-        # EQUITY
-        # ------------------------------------------------------------
-
-        ("3000", "EQUITY / CAPITAL", "EQUITY", None),
-
-        ("3100", "Owner's Capital", "EQUITY", "3000"),
-        ("3200", "Owner's Drawings", "EQUITY", "3000"),
-        ("3300", "Retained Earnings", "EQUITY", "3000"),
-
-        # ------------------------------------------------------------
-        # INCOME
-        # ------------------------------------------------------------
-
-        ("4000", "INCOME", "INCOME", None),
-
-        ("4100", "Sales", "INCOME", "4000"),
-        ("4110", "Sales - Finished Goods", "INCOME", "4100"),
-        ("4120", "Sales - Other Products", "INCOME", "4100"),
-
-        ("4200", "Other Operating Income", "INCOME", "4000"),
-        ("4300", "Other Income", "INCOME", "4000"),
-        ("4310", "Interest Income", "INCOME", "4300"),
-        ("4320", "Miscellaneous Income", "INCOME", "4300"),
-
-        # ------------------------------------------------------------
-        # COST OF GOODS / DIRECT COSTS
-        # ------------------------------------------------------------
-
-        ("5000", "COST OF GOODS SOLD", "EXPENSE", None),
-
-        ("5100", "Purchases", "EXPENSE", "5000"),
-        ("5110", "Raw Material Purchases", "EXPENSE", "5100"),
-        ("5120", "Consumable Purchases", "EXPENSE", "5100"),
-
-        ("5200", "Direct Factory Costs", "EXPENSE", "5000"),
-        ("5210", "Factory Wages", "EXPENSE", "5200"),
-        ("5220", "Production Expenses", "EXPENSE", "5200"),
-        ("5230", "Factory Electricity", "EXPENSE", "5200"),
-        ("5240", "Factory Fuel", "EXPENSE", "5200"),
-        ("5250", "Factory Repairs & Maintenance", "EXPENSE", "5200"),
-
-        ("5300", "Carriage & Freight Inward", "EXPENSE", "5000"),
-        ("5310", "Transportation Inward", "EXPENSE", "5300"),
-
-        # ------------------------------------------------------------
-        # OPERATING EXPENSES
-        # ------------------------------------------------------------
-
-        ("6000", "OPERATING EXPENSES", "EXPENSE", None),
-
-        ("6100", "Employee Costs", "EXPENSE", "6000"),
-        ("6110", "Salaries & Wages", "EXPENSE", "6100"),
-        ("6120", "Staff Welfare", "EXPENSE", "6100"),
-        ("6130", "Bonus & Incentives", "EXPENSE", "6100"),
-
-        ("6200", "Office Expenses", "EXPENSE", "6000"),
-        ("6210", "Office Rent", "EXPENSE", "6200"),
-        ("6220", "Office Electricity", "EXPENSE", "6200"),
-        ("6230", "Telephone & Internet", "EXPENSE", "6200"),
-        ("6240", "Stationery & Printing", "EXPENSE", "6200"),
-        ("6250", "Office Maintenance", "EXPENSE", "6200"),
-
-        ("6300", "Transportation & Logistics", "EXPENSE", "6000"),
-        ("6310", "Transportation Outward", "EXPENSE", "6300"),
-        ("6320", "Vehicle Running Expenses", "EXPENSE", "6300"),
-        ("6330", "Fuel Expenses", "EXPENSE", "6300"),
-
-        ("6400", "Professional & Compliance Expenses", "EXPENSE", "6000"),
-        ("6410", "Legal & Professional Fees", "EXPENSE", "6400"),
-        ("6420", "Accounting & Audit Fees", "EXPENSE", "6400"),
-        ("6430", "Consultancy Fees", "EXPENSE", "6400"),
-
-        ("6500", "Banking & Finance Costs", "EXPENSE", "6000"),
-        ("6510", "Bank Charges", "EXPENSE", "6500"),
-        ("6520", "Loan Interest", "EXPENSE", "6500"),
-        ("6530", "Other Finance Costs", "EXPENSE", "6500"),
-
-        ("6600", "Repairs & Maintenance", "EXPENSE", "6000"),
-        ("6700", "Insurance", "EXPENSE", "6000"),
-        ("6800", "Depreciation", "EXPENSE", "6000"),
-        ("6900", "Miscellaneous Expenses", "EXPENSE", "6000"),
-
-        # ------------------------------------------------------------
-        # TAX / GST EXPENSES
-        # ------------------------------------------------------------
-
-        ("7000", "TAX & GOVERNMENT EXPENSES", "EXPENSE", None),
-
-        ("7100", "GST / Tax Adjustments", "EXPENSE", "7000"),
-        ("7200", "Income Tax", "EXPENSE", "7000"),
-        ("7300", "Professional Tax", "EXPENSE", "7000"),
-        ("7400", "Late Fees & Penalties", "EXPENSE", "7000")
-    ]
 
     # ================================================================
-    # TAB 1 - CHART OF ACCOUNTS
+    # TAB 1 — CHART OF ACCOUNTS
     # ================================================================
 
     with account_tab1:
@@ -1419,7 +1259,7 @@ elif page == "Accounts":
         st.subheader("📚 Chart of Accounts")
 
         st.caption(
-            "Master list of all ledger accounts used by S.P. Enterprise."
+            "Master list of ledger accounts used throughout the business."
         )
 
         try:
@@ -1428,7 +1268,7 @@ elif page == "Accounts":
                 supabase
                 .table("chart_of_accounts")
                 .select("*")
-                .order("unit_code")
+                .order("account_name")
                 .execute()
                 .data
             )
@@ -1455,7 +1295,7 @@ elif page == "Accounts":
                 account_types.get(account_type, 0) + 1
             )
 
-        s1, s2, s3, s4, s5 = st.columns(5)
+        s1, s2, s3, s4 = st.columns(4)
 
         s1.metric(
             "Total Accounts",
@@ -1473,142 +1313,12 @@ elif page == "Accounts":
         )
 
         s4.metric(
-            "Equity",
-            account_types.get("EQUITY", 0)
-        )
-
-        s5.metric(
             "Income / Expense",
             account_types.get("INCOME", 0)
             + account_types.get("EXPENSE", 0)
         )
 
         st.divider()
-
-        # ------------------------------------------------------------
-        # INITIALIZE STANDARD ACCOUNTS
-        # ------------------------------------------------------------
-
-        with st.expander("⚙️ Initialize S.P. Enterprise Chart of Accounts"):
-
-            st.write(
-                "This will create the standard accounting structure for "
-                "the complete business. Existing accounts will not be "
-                "duplicated."
-            )
-
-            if st.button(
-                "🚀 Initialize Standard Chart of Accounts",
-                type="primary",
-                use_container_width=True
-            ):
-
-                try:
-
-                    # Reload current accounts
-                    existing = (
-                        supabase
-                        .table("chart_of_accounts")
-                        .select("*")
-                        .execute()
-                        .data
-                    )
-
-                    code_to_id = {}
-
-                    for account in existing:
-
-                        code = str(
-                            account.get("unit_code") or ""
-                        ).strip()
-
-                        if code and account.get("id"):
-                            code_to_id[code] = account["id"]
-
-                    created = 0
-                    skipped = 0
-
-                    # ------------------------------------------------
-                    # Create accounts in hierarchy order
-                    # ------------------------------------------------
-
-                    for code, name, account_type, parent_code in STANDARD_ACCOUNTS:
-
-                        # Already exists
-                        if code in code_to_id:
-
-                            skipped += 1
-                            continue
-
-                        parent_id = None
-
-                        if parent_code:
-
-                            parent_id = code_to_id.get(parent_code)
-
-                            if not parent_id:
-                                raise Exception(
-                                    f"Parent account {parent_code} "
-                                    f"was not found for {code} - {name}."
-                                )
-
-                        account_data = {
-                            "unit_code": code,
-                            "account_name": name,
-                            "account_type": account_type,
-                            "parent_id": parent_id,
-                            "opening_balance": 0
-                        }
-
-                        result = (
-                            supabase
-                            .table("chart_of_accounts")
-                            .insert(account_data)
-                            .execute()
-                        )
-
-                        inserted = result.data
-
-                        if inserted:
-
-                            new_id = inserted[0].get("id")
-
-                            if new_id:
-                                code_to_id[code] = new_id
-
-                        else:
-
-                            # Fallback: reload inserted account
-                            check = (
-                                supabase
-                                .table("chart_of_accounts")
-                                .select("id")
-                                .eq("unit_code", code)
-                                .limit(1)
-                                .execute()
-                                .data
-                            )
-
-                            if check:
-                                code_to_id[code] = check[0]["id"]
-
-                        created += 1
-
-                    st.success(
-                        f"Chart of Accounts initialized successfully. "
-                        f"{created} accounts created and "
-                        f"{skipped} existing accounts skipped."
-                    )
-
-                    st.rerun()
-
-                except Exception as e:
-
-                    st.error(
-                        "Unable to initialize the Chart of Accounts."
-                    )
-
-                    st.code(str(e))
 
         # ------------------------------------------------------------
         # SEARCH / FILTER
@@ -1638,22 +1348,12 @@ elif page == "Accounts":
             key="account_type_filter"
         )
 
-        # ------------------------------------------------------------
-        # DISPLAY ACCOUNTS
-        # ------------------------------------------------------------
-
         filtered_accounts = []
 
         for account in accounts:
 
-            code = str(
-                account.get("unit_code") or ""
-            )
-
-            name = str(
-                account.get("account_name") or ""
-            )
-
+            code = str(account.get("unit_code") or "")
+            name = str(account.get("account_name") or "")
             account_type = str(
                 account.get("account_type") or ""
             )
@@ -1688,7 +1388,7 @@ elif page == "Accounts":
         )
 
         # ------------------------------------------------------------
-        # ADD NEW ACCOUNT
+        # CREATE ACCOUNT
         # ------------------------------------------------------------
 
         with st.expander("➕ Create New Account"):
@@ -1699,12 +1399,12 @@ elif page == "Accounts":
 
                 new_code = c1.text_input(
                     "Account Code",
-                    placeholder="Example: 1210"
+                    placeholder="Example: 1100"
                 )
 
                 new_name = c2.text_input(
                     "Account Name",
-                    placeholder="Example: HDFC Current Account"
+                    placeholder="Example: SBI Current Account"
                 )
 
                 c1, c2, c3 = st.columns(3)
@@ -1776,7 +1476,8 @@ elif page == "Accounts":
                             == new_code.strip().upper()
                             or
                             str(x.get("account_name") or "")
-                            .strip().upper()
+                            .strip()
+                            .upper()
                             == new_name.strip().upper()
                             for x in accounts
                         )
@@ -1830,8 +1531,9 @@ elif page == "Accounts":
 
                                 st.code(str(e))
 
-        # ================================================================
-    # TAB 2 - ACCOUNTING REGISTERS
+
+    # ================================================================
+    # TAB 2 — SALES REGISTER
     # ================================================================
 
     with account_tab2:
@@ -1839,20 +1541,41 @@ elif page == "Accounts":
         st.subheader("🧾 Sales Register")
 
         st.caption(
-            "Record and manage sales invoices for S.P. Enterprise."
+            "Record and monitor sales invoices for the entire business."
         )
 
         # ------------------------------------------------------------
-        # LOAD SALES INVOICES
+        # LOAD CUSTOMERS
         # ------------------------------------------------------------
 
         try:
 
-            sales_invoices = (
+            sales_parties = (
+                supabase
+                .table("business_parties")
+                .select("*")
+                .eq("active", True)
+                .order("name")
+                .execute()
+                .data
+            )
+
+        except Exception:
+
+            sales_parties = []
+
+        # ------------------------------------------------------------
+        # SALES SUMMARY
+        # ------------------------------------------------------------
+
+        try:
+
+            sales_data = (
                 supabase
                 .table("sales_invoices")
                 .select("*")
                 .order("invoice_date", desc=True)
+                .limit(5000)
                 .execute()
                 .data
             )
@@ -1861,234 +1584,640 @@ elif page == "Accounts":
 
             st.error("Unable to load Sales Register.")
             st.code(str(e))
-            sales_invoices = []
-
-        # ------------------------------------------------------------
-        # SUMMARY
-        # ------------------------------------------------------------
+            sales_data = []
 
         total_sales = sum(
             float(x.get("total_amount") or 0)
-            for x in sales_invoices
+            for x in sales_data
+            if x.get("payment_status") != "CANCELLED"
         )
 
         total_received = sum(
             float(x.get("amount_received") or 0)
-            for x in sales_invoices
+            for x in sales_data
+            if x.get("payment_status") != "CANCELLED"
         )
 
-        total_balance = sum(
+        total_outstanding = sum(
             float(x.get("balance_amount") or 0)
-            for x in sales_invoices
+            for x in sales_data
+            if x.get("payment_status") != "CANCELLED"
         )
 
-        paid_invoices = sum(
+        unpaid_count = sum(
             1
-            for x in sales_invoices
-            if x.get("payment_status") == "PAID"
+            for x in sales_data
+            if x.get("payment_status") == "UNPAID"
         )
 
-        s1, s2, s3, s4 = st.columns(4)
+        a, b, c, d = st.columns(4)
 
-        s1.metric(
-            "Total Invoices",
-            len(sales_invoices)
-        )
-
-        s2.metric(
+        a.metric(
             "Total Sales",
             f"₹{total_sales:,.2f}"
         )
 
-        s3.metric(
-            "Received",
+        b.metric(
+            "Amount Received",
             f"₹{total_received:,.2f}"
         )
 
-        s4.metric(
+        c.metric(
             "Outstanding",
-            f"₹{total_balance:,.2f}"
+            f"₹{total_outstanding:,.2f}"
+        )
+
+        d.metric(
+            "Unpaid Invoices",
+            unpaid_count
         )
 
         st.divider()
 
-        # ------------------------------------------------------------
-        # CREATE SALES INVOICE
-        # ------------------------------------------------------------
+        # ============================================================
+        # NEW SALES INVOICE
+        # ============================================================
 
-        with st.expander("➕ Create Sales Invoice", expanded=False):
+        with st.expander(
+            "➕ Create New Sales Invoice",
+            expanded=True
+        ):
 
-            with st.form("create_sales_invoice"):
+            st.subheader("Invoice Details")
 
-                c1, c2, c3 = st.columns(3)
+            c1, c2, c3 = st.columns(3)
 
-                invoice_number = c1.text_input(
-                    "Invoice Number",
-                    placeholder="Example: INV-0001"
+            invoice_number = c1.text_input(
+                "Invoice Number",
+                placeholder="Example: INV-001"
+            )
+
+            invoice_date = c2.date_input(
+                "Invoice Date",
+                date.today(),
+                key="sales_invoice_date"
+            )
+
+            invoice_type = c3.selectbox(
+                "Invoice Type",
+                [
+                    "TAX_INVOICE",
+                    "BILL_OF_SUPPLY",
+                    "EXPORT",
+                    "OTHER"
+                ],
+                key="sales_invoice_type"
+            )
+
+            c1, c2 = st.columns(2)
+
+            if sales_parties:
+
+                party_options = {
+                    "Walk-in / Other Customer": None
+                }
+
+                for p in sales_parties:
+
+                    party_options[
+                        f'{p["name"]} [{p["party_type"]}]'
+                    ] = p["id"]
+
+                customer_label = c1.selectbox(
+                    "Customer / Party",
+                    list(party_options),
+                    key="sales_customer"
                 )
 
-                invoice_date = c2.date_input(
-                    "Invoice Date"
+                selected_customer_id = (
+                    party_options[customer_label]
                 )
 
-                due_date = c3.date_input(
-                    "Due Date"
+                selected_customer_name = (
+                    customer_label
+                    if selected_customer_id is None
+                    else customer_label.split(" [")[0]
                 )
 
-                c1, c2 = st.columns(2)
+            else:
 
-                customer_name = c1.text_input(
+                selected_customer_id = None
+
+                selected_customer_name = c1.text_input(
                     "Customer Name",
-                    placeholder="Enter customer name"
+                    key="sales_customer_name"
                 )
 
-                invoice_type = c2.selectbox(
-                    "Invoice Type",
-                    [
-                        "TAX_INVOICE",
-                        "BILL_OF_SUPPLY",
-                        "CREDIT_NOTE"
-                    ]
+            payment_status = c2.selectbox(
+                "Payment Status",
+                [
+                    "UNPAID",
+                    "PARTIAL",
+                    "PAID",
+                    "CANCELLED"
+                ],
+                key="sales_payment_status"
+            )
+
+            # --------------------------------------------------------
+            # INVOICE ITEMS
+            # --------------------------------------------------------
+
+            st.divider()
+
+            st.subheader("Invoice Items")
+
+            try:
+
+                sales_stock_items = (
+                    supabase
+                    .table("stock_items")
+                    .select("*")
+                    .eq("active", True)
+                    .order("name")
+                    .execute()
+                    .data
                 )
 
-                st.markdown("### 💰 Invoice Amount")
+            except Exception:
 
-                c1, c2, c3 = st.columns(3)
+                sales_stock_items = []
 
-                subtotal = c1.number_input(
-                    "Subtotal (₹)",
+            item_count = st.number_input(
+                "Number of Items",
+                min_value=1,
+                max_value=20,
+                value=1,
+                step=1,
+                key="sales_item_count"
+            )
+
+            invoice_items = []
+
+            for i in range(int(item_count)):
+
+                st.markdown(
+                    f"**Item {i + 1}**"
+                )
+
+                c1, c2, c3, c4 = st.columns(4)
+
+                if sales_stock_items:
+
+                    stock_options = {
+                        "Manual / Other Item": None
+                    }
+
+                    for item in sales_stock_items:
+
+                        stock_options[
+                            f'{item["name"]} ({item["unit"]})'
+                        ] = item["id"]
+
+                    selected_stock_label = c1.selectbox(
+                        "Stock Item",
+                        list(stock_options),
+                        key=f"sales_stock_{i}"
+                    )
+
+                    selected_stock_id = (
+                        stock_options[selected_stock_label]
+                    )
+
+                    if selected_stock_id:
+
+                        selected_stock = next(
+                            (
+                                x
+                                for x in sales_stock_items
+                                if x["id"] == selected_stock_id
+                            ),
+                            None
+                        )
+
+                        default_description = (
+                            selected_stock["name"]
+                            if selected_stock
+                            else ""
+                        )
+
+                        default_unit = (
+                            selected_stock["unit"]
+                            if selected_stock
+                            else "PCS"
+                        )
+
+                    else:
+
+                        default_description = ""
+                        default_unit = "PCS"
+
+                else:
+
+                    selected_stock_id = None
+                    default_description = ""
+                    default_unit = "PCS"
+
+                description = c2.text_input(
+                    "Description",
+                    value=default_description,
+                    key=f"sales_description_{i}"
+                )
+
+                quantity = c3.number_input(
+                    "Quantity",
+                    min_value=0.001,
+                    value=1.0,
+                    step=1.0,
+                    key=f"sales_qty_{i}"
+                )
+
+                rate = c4.number_input(
+                    "Rate (₹)",
                     min_value=0.0,
-                    step=100.0
+                    step=0.50,
+                    key=f"sales_rate_{i}"
                 )
 
-                discount_amount = c2.number_input(
-                    "Discount (₹)",
+                c1, c2, c3, c4 = st.columns(4)
+
+                unit = c1.text_input(
+                    "Unit",
+                    value=default_unit,
+                    key=f"sales_unit_{i}"
+                )
+
+                discount_percent = c2.number_input(
+                    "Discount %",
                     min_value=0.0,
-                    step=100.0
+                    max_value=100.0,
+                    step=0.50,
+                    key=f"sales_discount_{i}"
                 )
 
                 gst_rate = c3.number_input(
-                    "GST Rate (%)",
+                    "GST %",
                     min_value=0.0,
                     max_value=100.0,
-                    step=1.0
+                    step=1.0,
+                    key=f"sales_gst_{i}"
                 )
 
-                taxable_amount = max(
-                    subtotal - discount_amount,
-                    0
+                taxable_amount = (
+                    quantity * rate
+                    * (1 - discount_percent / 100)
                 )
-
-                c1, c2, c3 = st.columns(3)
-
-                cgst_amount = 0.0
-                sgst_amount = 0.0
-                igst_amount = 0.0
 
                 gst_amount = (
                     taxable_amount * gst_rate / 100
                 )
 
-                tax_type = st.selectbox(
-                    "GST Type",
-                    [
-                        "CGST + SGST",
-                        "IGST",
-                        "NO GST"
-                    ]
+                line_total = (
+                    taxable_amount + gst_amount
                 )
 
-                if tax_type == "CGST + SGST":
-
-                    cgst_amount = gst_amount / 2
-                    sgst_amount = gst_amount / 2
-
-                elif tax_type == "IGST":
-
-                    igst_amount = gst_amount
-
-                total_amount = (
-                    taxable_amount
-                    + cgst_amount
-                    + sgst_amount
-                    + igst_amount
+                c4.metric(
+                    "Line Total",
+                    f"₹{line_total:,.2f}"
                 )
 
-                st.metric(
-                    "Invoice Total",
-                    f"₹{total_amount:,.2f}"
-                )
+                invoice_items.append({
+                    "stock_item_id": selected_stock_id,
+                    "description": description.strip(),
+                    "quantity": quantity,
+                    "unit": unit.strip() or default_unit,
+                    "rate": rate,
+                    "discount_percent": discount_percent,
+                    "discount_amount":
+                        quantity * rate
+                        * discount_percent / 100,
+                    "taxable_amount": taxable_amount,
+                    "gst_rate": gst_rate,
+                    "cgst_amount": gst_amount / 2,
+                    "sgst_amount": gst_amount / 2,
+                    "igst_amount": 0,
+                    "line_total": line_total
+                })
 
-                amount_received = st.number_input(
-                    "Amount Received (₹)",
-                    min_value=0.0,
-                    max_value=float(total_amount),
-                    step=100.0
-                )
+                if i < int(item_count) - 1:
+                    st.divider()
 
-                balance_amount = max(
-                    total_amount - amount_received,
-                    0
-                )
+            # --------------------------------------------------------
+            # TOTALS
+            # --------------------------------------------------------
 
-                if amount_received <= 0:
+            st.divider()
 
-                    payment_status = "UNPAID"
+            subtotal = sum(
+                x["quantity"] * x["rate"]
+                for x in invoice_items
+            )
 
-                elif amount_received < total_amount:
+            discount_amount = sum(
+                x["discount_amount"]
+                for x in invoice_items
+            )
 
-                    payment_status = "PARTIAL"
+            taxable_total = sum(
+                x["taxable_amount"]
+                for x in invoice_items
+            )
+
+            cgst_total = sum(
+                x["cgst_amount"]
+                for x in invoice_items
+            )
+
+            sgst_total = sum(
+                x["sgst_amount"]
+                for x in invoice_items
+            )
+
+            igst_total = sum(
+                x["igst_amount"]
+                for x in invoice_items
+            )
+
+            calculated_total = (
+                taxable_total
+                + cgst_total
+                + sgst_total
+                + igst_total
+            )
+
+            c1, c2, c3, c4 = st.columns(4)
+
+            c1.metric(
+                "Subtotal",
+                f"₹{subtotal:,.2f}"
+            )
+
+            c2.metric(
+                "Discount",
+                f"₹{discount_amount:,.2f}"
+            )
+
+            c3.metric(
+                "GST",
+                f"₹{cgst_total + sgst_total + igst_total:,.2f}"
+            )
+
+            c4.metric(
+                "Invoice Total",
+                f"₹{calculated_total:,.2f}"
+            )
+
+            # --------------------------------------------------------
+            # PAYMENT / DUE DETAILS
+            # --------------------------------------------------------
+
+            st.divider()
+
+            c1, c2, c3 = st.columns(3)
+
+            amount_received = c1.number_input(
+                "Amount Received (₹)",
+                min_value=0.0,
+                max_value=max(calculated_total, 0.0),
+                step=100.0,
+                key="sales_amount_received"
+            )
+
+            due_date = c2.date_input(
+                "Due Date",
+                value=invoice_date,
+                key="sales_due_date"
+            )
+
+            round_off = c3.number_input(
+                "Round Off (₹)",
+                value=0.0,
+                step=0.01,
+                key="sales_round_off"
+            )
+
+            final_total = (
+                calculated_total + round_off
+            )
+
+            balance_amount = max(
+                final_total - amount_received,
+                0
+            )
+
+            if amount_received >= final_total and final_total > 0:
+
+                calculated_payment_status = "PAID"
+
+            elif amount_received > 0:
+
+                calculated_payment_status = "PARTIAL"
+
+            else:
+
+                calculated_payment_status = "UNPAID"
+
+            st.info(
+                f"Final Invoice Amount: ₹{final_total:,.2f}  |  "
+                f"Received: ₹{amount_received:,.2f}  |  "
+                f"Balance: ₹{balance_amount:,.2f}  |  "
+                f"Suggested Status: {calculated_payment_status}"
+            )
+
+            notes = st.text_area(
+                "Invoice Notes",
+                key="sales_invoice_notes"
+            )
+
+            # --------------------------------------------------------
+            # SAVE INVOICE
+            # --------------------------------------------------------
+
+            save_invoice = st.button(
+                "💾 Save Sales Invoice",
+                type="primary",
+                use_container_width=True,
+                key="save_sales_invoice"
+            )
+
+            if save_invoice:
+
+                if not invoice_number.strip():
+
+                    st.error(
+                        "Invoice number is required."
+                    )
+
+                elif not selected_customer_name.strip():
+
+                    st.error(
+                        "Customer name is required."
+                    )
+
+                elif not invoice_items:
+
+                    st.error(
+                        "At least one invoice item is required."
+                    )
+
+                elif any(
+                    not x["description"]
+                    for x in invoice_items
+                ):
+
+                    st.error(
+                        "Every invoice item must have a description."
+                    )
+
+                elif final_total <= 0:
+
+                    st.error(
+                        "Invoice total must be greater than zero."
+                    )
 
                 else:
 
-                    payment_status = "PAID"
+                    invoice_data = {
+                        "invoice_number":
+                            invoice_number.strip(),
 
-                st.caption(
-                    f"Payment Status: **{payment_status}**  |  "
-                    f"Outstanding: **₹{balance_amount:,.2f}**"
-                )
+                        "invoice_date":
+                            str(invoice_date),
 
-                notes = st.text_area(
-                    "Notes",
-                    placeholder="Optional notes"
-                )
+                        "customer_id":
+                            selected_customer_id,
 
-                save_invoice = st.form_submit_button(
-                    "💾 Save Sales Invoice",
-                    type="primary"
-                )
+                        "customer_name":
+                            selected_customer_name.strip(),
 
-                if save_invoice:
+                        "invoice_type":
+                            invoice_type,
 
-                    if not invoice_number.strip():
+                        "payment_status":
+                            calculated_payment_status,
 
-                        st.error(
-                            "Invoice number is required."
+                        "subtotal":
+                            subtotal,
+
+                        "discount_amount":
+                            discount_amount,
+
+                        "cgst_amount":
+                            cgst_total,
+
+                        "sgst_amount":
+                            sgst_total,
+
+                        "igst_amount":
+                            igst_total,
+
+                        "round_off":
+                            round_off,
+
+                        "total_amount":
+                            final_total,
+
+                        "amount_received":
+                            amount_received,
+
+                        "balance_amount":
+                            balance_amount,
+
+                        "due_date":
+                            str(due_date),
+
+                        "notes":
+                            notes.strip() or None
+                    }
+
+                    try:
+
+                        invoice_response = (
+                            supabase
+                            .table("sales_invoices")
+                            .insert(invoice_data)
+                            .execute()
                         )
 
-                    elif not customer_name.strip():
-
-                        st.error(
-                            "Customer name is required."
+                        created_invoice = (
+                            invoice_response.data[0]
                         )
 
-                    elif subtotal <= 0:
+                        invoice_id = created_invoice["id"]
 
-                        st.error(
-                            "Invoice subtotal must be greater than zero."
+                        item_rows = []
+
+                        for item in invoice_items:
+
+                            item_rows.append({
+                                "sales_invoice_id":
+                                    invoice_id,
+
+                                "stock_item_id":
+                                    item["stock_item_id"],
+
+                                "description":
+                                    item["description"],
+
+                                "quantity":
+                                    item["quantity"],
+
+                                "unit":
+                                    item["unit"],
+
+                                "rate":
+                                    item["rate"],
+
+                                "discount_percent":
+                                    item["discount_percent"],
+
+                                "discount_amount":
+                                    item["discount_amount"],
+
+                                "taxable_amount":
+                                    item["taxable_amount"],
+
+                                "gst_rate":
+                                    item["gst_rate"],
+
+                                "cgst_amount":
+                                    item["cgst_amount"],
+
+                                "sgst_amount":
+                                    item["sgst_amount"],
+
+                                "igst_amount":
+                                    item["igst_amount"],
+
+                                "line_total":
+                                    item["line_total"]
+                            })
+
+                        (
+                            supabase
+                            .table("sales_invoice_items")
+                            .insert(item_rows)
+                            .execute()
                         )
 
-                    else:
-
-                        duplicate_invoice = any(
-                            str(x.get("invoice_number") or "")
-                            .strip()
-                            .upper()
-                            == invoice_number.strip().upper()
-                            for x in sales_invoices
+                        st.success(
+                            f"Sales Invoice "
+                            f"{invoice_number.strip()} "
+                            f"created successfully."
                         )
 
-                        if duplicate_invoice:
+                        st.rerun()
+
+                    except Exception as e:
+
+                        error_text = str(e).lower()
+
+                        if (
+                            "duplicate"
+                            in error_text
+                            or "unique"
+                            in error_text
+                        ):
 
                             st.error(
                                 "This invoice number already exists."
@@ -2096,94 +2225,27 @@ elif page == "Accounts":
 
                         else:
 
-                            invoice_data = {
+                            st.error(
+                                "Unable to save sales invoice."
+                            )
 
-                                "invoice_number":
-                                    invoice_number.strip(),
+                            st.code(str(e))
 
-                                "invoice_date":
-                                    str(invoice_date),
 
-                                "customer_name":
-                                    customer_name.strip(),
-
-                                "invoice_type":
-                                    invoice_type,
-
-                                "payment_status":
-                                    payment_status,
-
-                                "subtotal":
-                                    taxable_amount,
-
-                                "discount_amount":
-                                    discount_amount,
-
-                                "cgst_amount":
-                                    cgst_amount,
-
-                                "sgst_amount":
-                                    sgst_amount,
-
-                                "igst_amount":
-                                    igst_amount,
-
-                                "round_off":
-                                    0,
-
-                                "total_amount":
-                                    total_amount,
-
-                                "amount_received":
-                                    amount_received,
-
-                                "balance_amount":
-                                    balance_amount,
-
-                                "due_date":
-                                    str(due_date),
-
-                                "notes":
-                                    notes.strip()
-                            }
-
-                            try:
-
-                                (
-                                    supabase
-                                    .table("sales_invoices")
-                                    .insert(invoice_data)
-                                    .execute()
-                                )
-
-                                st.success(
-                                    "Sales invoice created successfully."
-                                )
-
-                                st.rerun()
-
-                            except Exception as e:
-
-                                st.error(
-                                    "Unable to create sales invoice."
-                                )
-
-                                st.code(str(e))
+        # ============================================================
+        # SALES REGISTER TABLE
+        # ============================================================
 
         st.divider()
 
-        # ------------------------------------------------------------
-        # SEARCH / FILTER
-        # ------------------------------------------------------------
+        st.subheader("📋 Sales Invoice Register")
 
-        f1, f2 = st.columns(2)
-
-        search_invoice = f1.text_input(
-            "🔎 Search Invoice",
-            placeholder="Search invoice number or customer"
+        search_invoice = st.text_input(
+            "🔎 Search Invoice / Customer",
+            key="sales_register_search"
         )
 
-        status_filter = f2.selectbox(
+        status_filter = st.selectbox(
             "Payment Status",
             [
                 "ALL",
@@ -2191,18 +2253,15 @@ elif page == "Accounts":
                 "PARTIAL",
                 "PAID",
                 "CANCELLED"
-            ]
+            ],
+            key="sales_status_filter"
         )
 
-        # ------------------------------------------------------------
-        # DISPLAY SALES REGISTER
-        # ------------------------------------------------------------
+        register_rows = []
 
-        filtered_sales = []
+        for invoice in sales_data:
 
-        for invoice in sales_invoices:
-
-            invoice_no = str(
+            invoice_number = str(
                 invoice.get("invoice_number") or ""
             )
 
@@ -2215,7 +2274,7 @@ elif page == "Accounts":
             )
 
             search_text = (
-                invoice_no + " " + customer
+                invoice_number + " " + customer
             ).lower()
 
             if search_invoice.strip():
@@ -2227,45 +2286,113 @@ elif page == "Accounts":
                 status_filter != "ALL"
                 and status != status_filter
             ):
-
                 continue
 
-            filtered_sales.append({
-                "Invoice No.": invoice_no,
-                "Date": invoice.get("invoice_date"),
-                "Customer": customer,
-                "Subtotal": invoice.get("subtotal"),
-                "GST": (
-                    float(invoice.get("cgst_amount") or 0)
-                    + float(invoice.get("sgst_amount") or 0)
-                    + float(invoice.get("igst_amount") or 0)
-                ),
-                "Total": invoice.get("total_amount"),
-                "Received": invoice.get("amount_received"),
-                "Balance": invoice.get("balance_amount"),
-                "Status": status
+            register_rows.append({
+                "Date":
+                    invoice.get("invoice_date"),
+
+                "Invoice No.":
+                    invoice_number,
+
+                "Customer":
+                    customer,
+
+                "Type":
+                    invoice.get("invoice_type"),
+
+                "Subtotal":
+                    invoice.get("subtotal"),
+
+                "Discount":
+                    invoice.get("discount_amount"),
+
+                "CGST":
+                    invoice.get("cgst_amount"),
+
+                "SGST":
+                    invoice.get("sgst_amount"),
+
+                "IGST":
+                    invoice.get("igst_amount"),
+
+                "Total":
+                    invoice.get("total_amount"),
+
+                "Received":
+                    invoice.get("amount_received"),
+
+                "Balance":
+                    invoice.get("balance_amount"),
+
+                "Due Date":
+                    invoice.get("due_date"),
+
+                "Status":
+                    status
             })
 
-        if filtered_sales:
+        st.dataframe(
+            register_rows,
+            use_container_width=True,
+            hide_index=True
+        )
 
-            st.dataframe(
-                filtered_sales,
-                use_container_width=True,
-                hide_index=True
-            )
 
-        else:
+    # ================================================================
+    # TAB 3 — FUTURE ACCOUNTING REGISTERS
+    # ================================================================
 
-            st.info(
-                "No sales invoices found."
-            )
+    with account_tab3:
+
+        st.subheader("📒 Accounting Registers")
+
+        st.info(
+            "Sales Register is now active. The remaining accounting "
+            "registers will be connected to the same accounting "
+            "database."
+        )
+
+        r1, r2, r3 = st.columns(3)
+
+        r1.metric(
+            "Purchases",
+            "Coming next"
+        )
+
+        r2.metric(
+            "Expenses",
+            "Coming next"
+        )
+
+        r3.metric(
+            "Receipts",
+            "Coming next"
+        )
+
+        r4, r5, r6 = st.columns(3)
+
+        r4.metric(
+            "Payments",
+            "Coming next"
+        )
+
+        r5.metric(
+            "Cash / Bank",
+            "Coming next"
+        )
+
+        r6.metric(
+            "General Ledger",
+            "Coming next"
+        )
 
         st.divider()
 
         st.caption(
-            "Sales invoice items, stock deduction, customer ledger, "
-            "GST accounting and automatic journal entries will be "
-            "connected to this Sales Register in the next build."
+            "All future accounting registers will connect with the "
+            "same business parties, Chart of Accounts, stock system "
+            "and transaction database."
         )
 
 # ---------------------------------------------------------------------
