@@ -1730,6 +1730,25 @@ elif page == "Accounts":
 
             st.subheader("Customer Details")
 
+            # --------------------------------------------------------
+            # LOAD PARTIES / CUSTOMERS
+            # --------------------------------------------------------
+
+            try:
+                parties_response = (
+                    supabase
+                    .table("parties")
+                    .select("*")
+                    .order("name")
+                    .execute()
+                )
+
+                parties = parties_response.data or []
+
+            except Exception as e:
+                parties = []
+                st.warning(f"Could not load customers: {e}")
+
             customer_options = {
                 "Manual Customer": None
             }
