@@ -2967,28 +2967,72 @@ else:
     )
 
 
-                    e5, e6, e7 = st.columns(3)
+payment_mode = e4.selectbox(
+    "Payment Mode",
+    [
+        "CASH",
+        "BANK",
+        "UPI",
+        "CHEQUE",
+        "CREDIT",
+        "OTHER"
+    ],
+    key="expense_payment_mode"
+)
 
-                    taxable_value = e5.number_input(
-                        "Taxable Value",
-                        min_value=0.0,
-                        step=0.01,
-                        key="expense_taxable"
-                    )
 
-                    gst_amount = e6.number_input(
-                        "GST Amount",
-                        min_value=0.0,
-                        step=0.01,
-                        key="expense_gst"
-                    )
+# ------------------------------------------------------------
+# PAYMENT / CREDIT ACCOUNT
+# ------------------------------------------------------------
 
-                    total_amount = e7.number_input(
-                        "Total Amount",
-                        min_value=0.0,
-                        step=0.01,
-                        key="expense_total"
-                    )
+payment_account_options = {
+    label: account_id
+    for label, account_id in account_options.items()
+}
+
+if payment_account_options:
+
+    payment_account_label = st.selectbox(
+        "Paid From / Payable Account",
+        list(payment_account_options.keys()),
+        key="expense_payment_account"
+    )
+
+    payment_account_id = payment_account_options[
+        payment_account_label
+    ]
+
+else:
+
+    payment_account_id = None
+
+    st.warning(
+        "No Chart of Accounts ledger is available."
+    )
+
+
+e5, e6, e7 = st.columns(3)
+
+taxable_value = e5.number_input(
+    "Taxable Value",
+    min_value=0.0,
+    step=0.01,
+    key="expense_taxable"
+)
+
+gst_amount = e6.number_input(
+    "GST Amount",
+    min_value=0.0,
+    step=0.01,
+    key="expense_gst"
+)
+
+total_amount = e7.number_input(
+    "Total Amount",
+    min_value=0.0,
+    step=0.01,
+    key="expense_total"
+)
 
                     reference_no = st.text_input(
                         "Reference No.",
