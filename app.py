@@ -72,6 +72,124 @@ def stock_balance(item_id):
     )
 
 
+# ================================================================
+# JOURNAL POSTING ENGINE
+# ================================================================
+
+def create_journal_entry(
+    entry_date,
+    voucher_type,
+    reference_type,
+    reference_id,
+    narration,
+    lines,
+    entered_by
+):
+
+    total_debit = round(
+        sum(float(line.get("debit", 0) or 0) for line in lines),
+        2
+    )
+
+    total_credit = round(
+        sum(float(line.get("credit", 0) or 0) for line in lines),
+        2
+    )
+
+    if total_debit <= 0:
+
+        raise Exception(
+            "Journal debit amount must be greater than zero."
+        )
+
+    if abs(total_debit - total_credit) >= 0.01:
+
+        raise Exception(
+            "Journal entry is not balanced."
+        )
+
+    journal_number = (
+        "JV-"
+        + entry_date.strftime("%Y%m%d")
+        + "-"
+        + uuid.uuid4().hex[:6].upper()
+    )
+
+    journal_header = {
+
+        "entry_no":
+            journal_number,
+
+        "entry_date":
+            entry_date.isoformat(),
+
+        "voucher_type":
+            voucher_type,
+
+        "reference_type":
+            reference_type,
+
+        "reference_id":
+            reference_id,
+
+        "narration":
+            narration,
+
+        "entered_by":
+            str(entered_by)
+    }
+
+    journal_response = (
+        supabase
+        .table("journal_entries")
+        .insert(journal_header)
+        .execute()
+    )
+
+    if not journal_response.data:
+
+        raise Exception(
+            "Journal entry header could not be created."
+        )
+
+    journal_entry_id = (
+        journal_response.data[0]["id"]
+    )
+
+    journal_lines = []
+
+    for line in lines:
+
+        journal_lines.append({
+
+            "journal_entry_id":
+                journal_entry_id,
+
+            "account_id":
+                line["account_id"],
+
+            "party_id":
+                line.get("party_id"),
+
+            "debit":
+                float(line.get("debit", 0) or 0),
+
+            "credit":
+                float(line.get("credit", 0) or 0),
+
+            "narration":
+                line.get("narration") or narration
+        })
+
+    (
+        supabase
+        .table("journal_lines")
+        .insert(journal_lines)
+        .execute()
+    )
+
+    return journal_number
+
 # ---------------------------------------------------------------------
 # LOGIN
 # ---------------------------------------------------------------------
@@ -2806,19 +2924,50 @@ with account_tab1:
                     )
 
                     payment_mode = e4.selectbox(
-                        "Payment Mode",
-                        [
-                            "CASH",
-                            "BANK",
-                            "UPI",
-                            "CHEQUE",
-                            "CREDIT",
-                            "OTHER"
-                        ],
-                        key="expense_payment_mode"
-                    )
+    "Payment Mode",
+    [
+        "CASH",
+        "BANK",
+        "UPI",
+        "CHEQUE",
+        "CREDIT",
+        "OTHER"
+    ],
+    key="expense_payment_mode"
+)
 
-                    e5, e6, e7 = st.columns(3)
+
+# ------------------------------------------------------------
+# PAYMENT / CREDIT ACCOUNT
+# ------------------------------------------------------------
+
+payment_account_options = {
+    label: account_id
+    for label, account_id in account_options.items()
+}
+
+if payment_account_options:
+
+    payment_account_label = st.selectbox(
+        "Paid From / Payable Account",
+        list(payment_account_options.keys()),
+        key="expense_payment_account"
+    )
+
+    payment_account_id = payment_account_options[
+        payment_account_label
+    ]
+
+else:
+
+    payment_account_id = None
+
+    st.warning(
+        "No Chart of Accounts ledger is available."
+    )
+
+
+e5, e6, e7 = st.columns(3)
 
                     taxable_value = e5.number_input(
                         "Taxable Value",
@@ -2869,42 +3018,135 @@ with account_tab1:
 
                         try:
 
-                            supabase.table(
-                                "accounts_expenses"
-                            ).insert({
-                                "expense_date":
-                                    expense_date.isoformat(),
+    # ------------------------------------------------------------
+    # SAVE EXPENSE REGISTER
+    # ------------------------------------------------------------
 
-                                "expense_account_id":
-                                    expense_account_id,
+    expense_response = (
+        supabase
+        .table("accounts_expenses")
+        .insert({
 
-                                "description":
-                                    description.strip(),
+            "expense_date":
+                expense_date.isoformat(),
 
-                                "taxable_value":
-                                    taxable_value,
+            "expense_account_id":
+                expense_account_id,
 
-                                "gst_amount":
-                                    gst_amount,
+            "description":
+                description.strip(),
 
-                                "total_amount":
-                                    total_amount,
+            "taxable_value":
+                taxable_value,
 
-                                "payment_mode":
-                                    payment_mode,
+            "gst_amount":
+                gst_amount,
 
-                                "reference_no":
-                                    reference_no.strip() or None,
+            "total_amount":
+                total_amount,
 
-                                "entered_by":
-                                    str(user.id)
-                            }).execute()
+            "payment_mode":
+                payment_mode,
 
-                            st.success(
-                                "Expense recorded successfully."
-                            )
+            "reference_no":
+                reference_no.strip() or None,
 
-                            st.rerun()
+            "entered_by":
+                str(user.id)
+
+        })
+        .execute()
+    )
+
+    if not expense_response.data:
+
+        raise Exception(
+            "Expense record could not be created."
+        )
+
+    created_expense = (
+        expense_response.data[0]
+    )
+
+    expense_id = created_expense["id"]
+
+    # ------------------------------------------------------------
+    # CREATE JOURNAL LINES
+    # ------------------------------------------------------------
+
+    journal_lines = [
+
+        {
+            "account_id":
+                expense_account_id,
+
+            "party_id":
+                None,
+
+            "debit":
+                total_amount,
+
+            "credit":
+                0,
+
+            "narration":
+                description.strip()
+        },
+
+        {
+            "account_id":
+                payment_account_id,
+
+            "party_id":
+                None,
+
+            "debit":
+                0,
+
+            "credit":
+                total_amount,
+
+            "narration":
+                description.strip()
+        }
+
+    ]
+
+    # ------------------------------------------------------------
+    # POST JOURNAL
+    # ------------------------------------------------------------
+
+    journal_number = create_journal_entry(
+
+        entry_date=expense_date,
+
+        voucher_type="EXPENSE",
+
+        reference_type="EXPENSE",
+
+        reference_id=expense_id,
+
+        narration=description.strip(),
+
+        lines=journal_lines,
+
+        entered_by=user.id
+    )
+
+    st.success(
+        f"Expense recorded successfully. "
+        f"Journal {journal_number} posted."
+    )
+
+    st.rerun()
+
+except Exception as e:
+
+    st.error(
+        "Unable to save expense and post journal."
+    )
+
+    st.code(str(e))
 
                         except Exception as e:
 
@@ -3300,6 +3542,37 @@ with account_tab1:
                     key="cash_bank_name"
                 )
 
+                cash_bank_chart_options = {
+                    f'{a.get("unit_code", "")} - {a.get("account_name", "")}':
+                        a.get("id")
+                    for a in accounts
+                    if a.get("id")
+                    and str(a.get("account_type", "")).upper() == "ASSET"
+                }
+
+                if cash_bank_chart_options:
+
+                   cash_bank_chart_label = st.selectbox(
+                       "Linked Chart of Accounts Ledger",
+                       list(cash_bank_chart_options.keys()),
+                       key="cash_bank_chart_account"
+                 )
+
+                 cash_bank_chart_account_id = (
+                     cash_bank_chart_options[
+                         cash_bank_chart_label
+                     ]
+                 )
+
+             else:
+
+                 cash_bank_chart_account_id = None
+
+                 st.warning(
+                     "Create an ASSET account in Chart of Accounts "
+                     "before adding a Cash / Bank account."
+               )
+                
                 account_type = b2.selectbox(
                     "Account Type",
                     [
@@ -3354,29 +3627,32 @@ with account_tab1:
 
                     try:
 
-                        supabase.table(
-                            "cash_bank_accounts"
-                        ).insert({
-                            "account_name":
-                                account_name.strip(),
+                       supabase.table("cash_bank_accounts").insert({
 
-                            "account_type":
-                                account_type,
+                           "account_name":
+                               account_name.strip(),
 
-                            "bank_name":
+                           "account_type":
+                               account_type,
+
+                           "bank_name":
                                 bank_name.strip() or None,
 
-                            "account_number":
-                                account_number.strip() or None,
+                           "account_number":
+                               account_number.strip() or None,
 
-                            "ifsc_code":
-                                ifsc_code.strip() or None,
+                           "ifsc_code":
+                               ifsc_code.strip() or None,
 
-                            "opening_balance":
-                                opening_balance,
+                           "opening_balance":
+                               opening_balance,
 
-                            "active":
-                                True
+                           "chart_account_id":
+                               cash_bank_chart_account_id,
+
+                           "active":
+                               True
+
                         }).execute()
 
                         st.success(
