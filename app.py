@@ -2967,7 +2967,7 @@ else:
     )
 
 
-e5, e6, e7 = st.columns(3)
+                    e5, e6, e7 = st.columns(3)
 
                     taxable_value = e5.number_input(
                         "Taxable Value",
