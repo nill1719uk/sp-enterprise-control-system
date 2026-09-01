@@ -1253,7 +1253,7 @@ elif page == "Accounts":
     # TAB 1 - CHART OF ACCOUNTS
     # ================================================================
 
-with account_tab4:
+with account_tab1:
 
     st.subheader("📚 Chart of Accounts")
 
