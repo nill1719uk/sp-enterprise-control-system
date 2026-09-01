@@ -2217,781 +2217,919 @@ elif page == "Accounts":
                 )
 
 
-# ================================================================
-# TAB 3 - ACCOUNTING REGISTERS
-# ================================================================
 
-with account_tab3:
 
-    st.subheader("📊 Accounting Registers")
+    # ================================================================
+    # TAB 3 - ACCOUNTING REGISTERS
+    # ================================================================
 
-    st.caption(
-        "Record and review purchases, expenses, receipts, payments "
-        "and cash / bank accounts."
-    )
+    with account_tab3:
 
-    # ------------------------------------------------------------
-    # LOAD CHART OF ACCOUNTS
-    # ------------------------------------------------------------
+        st.subheader("📊 Accounting Registers")
 
-    try:
-        coa_response = (
-            supabase
-            .table("chart_of_accounts")
-            .select("*")
-            .eq("active", True)
-            .order("account_code")
-            .execute()
+        st.caption(
+            "Record and review purchases, expenses, receipts, payments "
+            "and cash / bank accounts."
         )
 
-        chart_accounts = coa_response.data or []
+        # ------------------------------------------------------------
+        # LOAD CHART OF ACCOUNTS
+        # ------------------------------------------------------------
 
-    except Exception:
-        chart_accounts = []
+        try:
+            coa_response = (
+                supabase
+                .table("chart_of_accounts")
+                .select("*")
+                .eq("active", True)
+                .order("account_code")
+                .execute()
+            )
 
-    account_options = {
-        f'{a.get("account_code", "")} - {a.get("account_name", "")}': a.get("id")
-        for a in chart_accounts
-        if a.get("id")
-    }
+            chart_accounts = coa_response.data or []
 
-    # ------------------------------------------------------------
-    # LOAD CASH / BANK ACCOUNTS
-    # ------------------------------------------------------------
+        except Exception as e:
+            chart_accounts = []
+            st.warning(f"Could not load Chart of Accounts: {e}")
 
-    try:
-        bank_response = (
-            supabase
-            .table("cash_bank_accounts")
-            .select("*")
-            .eq("active", True)
-            .order("account_name")
-            .execute()
-        )
+        account_options = {
+            f'{a.get("account_code", "")} - '
+            f'{a.get("account_name", "")}': a.get("id")
+            for a in chart_accounts
+            if a.get("id")
+        }
 
-        cash_bank_accounts = bank_response.data or []
+        # ------------------------------------------------------------
+        # LOAD CASH / BANK ACCOUNTS
+        # ------------------------------------------------------------
 
-    except Exception:
-        cash_bank_accounts = []
+        try:
+            bank_response = (
+                supabase
+                .table("cash_bank_accounts")
+                .select("*")
+                .eq("active", True)
+                .order("account_name")
+                .execute()
+            )
 
-    bank_options = {
-        f'{b.get("account_name", "")} '
-        f'({b.get("account_type", "")})': b.get("id")
-        for b in cash_bank_accounts
-        if b.get("id")
-    }
+            cash_bank_accounts = bank_response.data or []
 
-    # ------------------------------------------------------------
-    # REGISTER TABS
-    # ------------------------------------------------------------
+        except Exception as e:
+            cash_bank_accounts = []
+            st.warning(f"Could not load Cash / Bank accounts: {e}")
 
-    reg1, reg2, reg3, reg4, reg5 = st.tabs(
-        [
+        bank_options = {
+            f'{b.get("account_name", "")} '
+            f'({b.get("account_type", "")})': b.get("id")
+            for b in cash_bank_accounts
+            if b.get("id")
+        }
+
+        # ------------------------------------------------------------
+        # REGISTER TABS
+        # ------------------------------------------------------------
+
+        reg1, reg2, reg3, reg4, reg5 = st.tabs([
             "🛒 Purchases",
             "💸 Expenses",
             "💰 Receipts",
             "💳 Payments",
             "🏦 Cash / Bank"
-        ]
-    )
+        ])
 
-    # ============================================================
-    # PURCHASE REGISTER
-    # ============================================================
+        # ============================================================
+        # PURCHASES
+        # ============================================================
 
-    with reg1:
+        with reg1:
 
-        st.subheader("🛒 Purchase Register")
+            st.subheader("🛒 Purchase Register")
 
-        with st.form("purchase_register_form", clear_on_submit=True):
+            with st.form(
+                "purchase_register_form",
+                clear_on_submit=True
+            ):
 
-            p1, p2, p3 = st.columns(3)
+                p1, p2, p3 = st.columns(3)
 
-            bill_no = p1.text_input(
-                "Bill No.",
-                key="purchase_bill_no"
-            )
+                bill_no = p1.text_input(
+                    "Bill No.",
+                    key="purchase_bill_no"
+                )
 
-            bill_date = p2.date_input(
-                "Bill Date",
-                key="purchase_bill_date"
-            )
+                bill_date = p2.date_input(
+                    "Bill Date",
+                    key="purchase_bill_date"
+                )
 
-            supplier = p3.text_input(
-                "Supplier",
-                key="purchase_supplier"
-            )
+                supplier = p3.text_input(
+                    "Supplier",
+                    key="purchase_supplier"
+                )
 
-            p4, p5, p6 = st.columns(3)
+                p4, p5, p6 = st.columns(3)
 
-            gstin = p4.text_input(
-                "Supplier GSTIN",
-                key="purchase_gstin"
-            )
+                gstin = p4.text_input(
+                    "Supplier GSTIN",
+                    key="purchase_gstin"
+                )
 
-            taxable_value = p5.number_input(
-                "Taxable Value",
-                min_value=0.0,
-                step=0.01,
-                key="purchase_taxable"
-            )
+                taxable_value = p5.number_input(
+                    "Taxable Value",
+                    min_value=0.0,
+                    step=0.01,
+                    key="purchase_taxable"
+                )
 
-            gst_amount = p6.number_input(
-                "GST Amount",
-                min_value=0.0,
-                step=0.01,
-                key="purchase_gst"
-            )
+                gst_amount = p6.number_input(
+                    "GST Amount",
+                    min_value=0.0,
+                    step=0.01,
+                    key="purchase_gst"
+                )
 
-            bill_total = st.number_input(
-                "Bill Total",
-                min_value=0.0,
-                step=0.01,
-                key="purchase_total"
-            )
+                bill_total = st.number_input(
+                    "Bill Total",
+                    min_value=0.0,
+                    step=0.01,
+                    key="purchase_total"
+                )
 
-            save_purchase = st.form_submit_button(
-                "💾 Save Purchase",
-                use_container_width=True
-            )
+                save_purchase = st.form_submit_button(
+                    "💾 Save Purchase",
+                    use_container_width=True
+                )
 
-        if save_purchase:
+            if save_purchase:
 
-            if not bill_no.strip():
-                st.error("Please enter the Bill No.")
+                if not bill_no.strip():
 
-            elif not supplier.strip():
-                st.error("Please enter the Supplier.")
+                    st.error("Please enter the Bill No.")
 
-            else:
+                elif not supplier.strip():
 
-                try:
+                    st.error("Please enter the Supplier.")
 
-                    supabase.table("accounts_purchases").insert({
-                        "bill_no": bill_no.strip(),
-                        "bill_date": bill_date.isoformat(),
-                        "supplier": supplier.strip(),
-                        "gstin": gstin.strip() or None,
-                        "taxable_value": taxable_value,
-                        "gst_amount": gst_amount,
-                        "bill_total": bill_total
-                    }).execute()
+                elif bill_total <= 0:
 
-                    st.success(
-                        f"Purchase bill {bill_no} saved successfully."
+                    st.error("Bill total must be greater than zero.")
+
+                else:
+
+                    try:
+
+                        supabase.table(
+                            "accounts_purchases"
+                        ).insert({
+                            "bill_no": bill_no.strip(),
+                            "bill_date": bill_date.isoformat(),
+                            "supplier": supplier.strip(),
+                            "gstin": gstin.strip() or None,
+                            "taxable_value": taxable_value,
+                            "gst_amount": gst_amount,
+                            "bill_total": bill_total,
+                            "entered_by": str(user.id)
+                        }).execute()
+
+                        st.success(
+                            f"Purchase bill {bill_no} saved successfully."
+                        )
+
+                        st.rerun()
+
+                    except Exception as e:
+
+                        st.error(
+                            f"Unable to save purchase: {e}"
+                        )
+
+            st.divider()
+
+            try:
+
+                purchases = (
+                    supabase
+                    .table("accounts_purchases")
+                    .select("*")
+                    .order("bill_date", desc=True)
+                    .limit(100)
+                    .execute()
+                    .data
+                    or []
+                )
+
+                if purchases:
+
+                    st.dataframe(
+                        purchases,
+                        use_container_width=True,
+                        hide_index=True
                     )
 
-                    st.rerun()
+                else:
 
-                except Exception as e:
-                    st.error(f"Unable to save purchase: {e}")
+                    st.info("No purchase records yet.")
 
-        st.divider()
+            except Exception as e:
 
-        try:
-
-            purchases = (
-                supabase
-                .table("accounts_purchases")
-                .select("*")
-                .order("bill_date", desc=True)
-                .limit(100)
-                .execute()
-                .data
-                or []
-            )
-
-            if purchases:
-                st.dataframe(
-                    purchases,
-                    use_container_width=True,
-                    hide_index=True
+                st.error(
+                    f"Unable to load purchases: {e}"
                 )
+
+
+        # ============================================================
+        # EXPENSES
+        # ============================================================
+
+        with reg2:
+
+            st.subheader("💸 Expense Register")
+
+            if not account_options:
+
+                st.warning(
+                    "No active Chart of Accounts found. "
+                    "Create accounts first."
+                )
+
             else:
-                st.info("No purchase records yet.")
 
-        except Exception as e:
-            st.error(f"Unable to load purchases: {e}")
+                with st.form(
+                    "expense_register_form",
+                    clear_on_submit=True
+                ):
 
-    # ============================================================
-    # EXPENSE REGISTER
-    # ============================================================
+                    e1, e2 = st.columns(2)
 
-    with reg2:
+                    expense_date = e1.date_input(
+                        "Expense Date",
+                        key="expense_date"
+                    )
 
-        st.subheader("💸 Expense Register")
+                    expense_account_label = e2.selectbox(
+                        "Expense Account",
+                        list(account_options.keys()),
+                        key="expense_account"
+                    )
 
-        if not account_options:
+                    expense_account_id = account_options[
+                        expense_account_label
+                    ]
 
-            st.warning(
-                "No active Chart of Accounts found. "
-                "Please create accounts first."
-            )
+                    e3, e4 = st.columns(2)
 
-        else:
+                    description = e3.text_input(
+                        "Description",
+                        key="expense_description"
+                    )
 
-            with st.form("expense_register_form", clear_on_submit=True):
+                    payment_mode = e4.selectbox(
+                        "Payment Mode",
+                        [
+                            "CASH",
+                            "BANK",
+                            "UPI",
+                            "CHEQUE",
+                            "CREDIT",
+                            "OTHER"
+                        ],
+                        key="expense_payment_mode"
+                    )
 
-                e1, e2 = st.columns(2)
+                    e5, e6, e7 = st.columns(3)
 
-                expense_date = e1.date_input(
-                    "Expense Date",
-                    key="expense_date"
+                    taxable_value = e5.number_input(
+                        "Taxable Value",
+                        min_value=0.0,
+                        step=0.01,
+                        key="expense_taxable"
+                    )
+
+                    gst_amount = e6.number_input(
+                        "GST Amount",
+                        min_value=0.0,
+                        step=0.01,
+                        key="expense_gst"
+                    )
+
+                    total_amount = e7.number_input(
+                        "Total Amount",
+                        min_value=0.0,
+                        step=0.01,
+                        key="expense_total"
+                    )
+
+                    reference_no = st.text_input(
+                        "Reference No.",
+                        key="expense_reference"
+                    )
+
+                    save_expense = st.form_submit_button(
+                        "💾 Save Expense",
+                        use_container_width=True
+                    )
+
+                if save_expense:
+
+                    if not description.strip():
+
+                        st.error(
+                            "Please enter an expense description."
+                        )
+
+                    elif total_amount <= 0:
+
+                        st.error(
+                            "Total amount must be greater than zero."
+                        )
+
+                    else:
+
+                        try:
+
+                            supabase.table(
+                                "accounts_expenses"
+                            ).insert({
+                                "expense_date":
+                                    expense_date.isoformat(),
+
+                                "expense_account_id":
+                                    expense_account_id,
+
+                                "description":
+                                    description.strip(),
+
+                                "taxable_value":
+                                    taxable_value,
+
+                                "gst_amount":
+                                    gst_amount,
+
+                                "total_amount":
+                                    total_amount,
+
+                                "payment_mode":
+                                    payment_mode,
+
+                                "reference_no":
+                                    reference_no.strip() or None,
+
+                                "entered_by":
+                                    str(user.id)
+                            }).execute()
+
+                            st.success(
+                                "Expense recorded successfully."
+                            )
+
+                            st.rerun()
+
+                        except Exception as e:
+
+                            st.error(
+                                f"Unable to save expense: {e}"
+                            )
+
+            st.divider()
+
+            try:
+
+                expenses = (
+                    supabase
+                    .table("accounts_expenses")
+                    .select("*")
+                    .order("expense_date", desc=True)
+                    .limit(100)
+                    .execute()
+                    .data
+                    or []
                 )
 
-                expense_account_label = e2.selectbox(
-                    "Expense Account",
-                    list(account_options.keys()),
-                    key="expense_account"
+                if expenses:
+
+                    st.dataframe(
+                        expenses,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                else:
+
+                    st.info("No expense records yet.")
+
+            except Exception as e:
+
+                st.error(
+                    f"Unable to load expenses: {e}"
                 )
 
-                expense_account_id = account_options[
-                    expense_account_label
-                ]
 
-                e3, e4 = st.columns(2)
+        # ============================================================
+        # RECEIPTS
+        # ============================================================
 
-                description = e3.text_input(
-                    "Description",
-                    key="expense_description"
+        with reg3:
+
+            st.subheader("💰 Receipt Register")
+
+            with st.form(
+                "receipt_register_form",
+                clear_on_submit=True
+            ):
+
+                r1, r2 = st.columns(2)
+
+                receipt_no = r1.text_input(
+                    "Receipt No.",
+                    key="receipt_no"
                 )
 
-                payment_mode = e4.selectbox(
+                receipt_date = r2.date_input(
+                    "Receipt Date",
+                    key="receipt_date"
+                )
+
+                r3, r4 = st.columns(2)
+
+                amount = r3.number_input(
+                    "Amount Received",
+                    min_value=0.0,
+                    step=0.01,
+                    key="receipt_amount"
+                )
+
+                payment_mode = r4.selectbox(
                     "Payment Mode",
                     [
                         "CASH",
                         "BANK",
                         "UPI",
                         "CHEQUE",
-                        "CREDIT",
                         "OTHER"
                     ],
-                    key="expense_payment_mode"
+                    key="receipt_payment_mode"
                 )
 
-                e5, e6, e7 = st.columns(3)
-
-                taxable_value = e5.number_input(
-                    "Taxable Value",
-                    min_value=0.0,
-                    step=0.01,
-                    key="expense_taxable"
-                )
-
-                gst_amount = e6.number_input(
-                    "GST Amount",
-                    min_value=0.0,
-                    step=0.01,
-                    key="expense_gst"
-                )
-
-                total_amount = e7.number_input(
-                    "Total Amount",
-                    min_value=0.0,
-                    step=0.01,
-                    key="expense_total"
+                narration = st.text_input(
+                    "Narration",
+                    key="receipt_narration"
                 )
 
                 reference_no = st.text_input(
                     "Reference No.",
-                    key="expense_reference"
+                    key="receipt_reference"
                 )
 
-                save_expense = st.form_submit_button(
-                    "💾 Save Expense",
+                bank_account_id = None
+
+                if bank_options:
+
+                    bank_label = st.selectbox(
+                        "Cash / Bank Account",
+                        ["None"] + list(bank_options.keys()),
+                        key="receipt_bank"
+                    )
+
+                    if bank_label != "None":
+
+                        bank_account_id = bank_options[
+                            bank_label
+                        ]
+
+                save_receipt = st.form_submit_button(
+                    "💾 Save Receipt",
                     use_container_width=True
                 )
 
-            if save_expense:
+            if save_receipt:
 
-                if not description.strip():
-                    st.error("Please enter an expense description.")
+                if not receipt_no.strip():
 
-                elif total_amount <= 0:
-                    st.error("Total amount must be greater than zero.")
+                    st.error("Please enter the Receipt No.")
+
+                elif amount <= 0:
+
+                    st.error(
+                        "Receipt amount must be greater than zero."
+                    )
 
                 else:
 
                     try:
 
-                        supabase.table("accounts_expenses").insert({
-                            "expense_date": expense_date.isoformat(),
-                            "expense_account_id": expense_account_id,
-                            "description": description.strip(),
-                            "taxable_value": taxable_value,
-                            "gst_amount": gst_amount,
-                            "total_amount": total_amount,
-                            "payment_mode": payment_mode,
-                            "reference_no": reference_no.strip() or None
+                        supabase.table(
+                            "accounts_receipts"
+                        ).insert({
+                            "receipt_no":
+                                receipt_no.strip(),
+
+                            "receipt_date":
+                                receipt_date.isoformat(),
+
+                            "amount":
+                                amount,
+
+                            "payment_mode":
+                                payment_mode,
+
+                            "bank_account_id":
+                                bank_account_id,
+
+                            "reference_no":
+                                reference_no.strip() or None,
+
+                            "narration":
+                                narration.strip() or None,
+
+                            "entered_by":
+                                str(user.id)
                         }).execute()
 
                         st.success(
-                            "Expense recorded successfully."
+                            "Receipt saved successfully."
                         )
 
                         st.rerun()
 
                     except Exception as e:
+
                         st.error(
-                            f"Unable to save expense: {e}"
+                            f"Unable to save receipt: {e}"
                         )
 
-        st.divider()
+            st.divider()
 
-        try:
+            try:
 
-            expenses = (
-                supabase
-                .table("accounts_expenses")
-                .select("*")
-                .order("expense_date", desc=True)
-                .limit(100)
-                .execute()
-                .data
-                or []
-            )
-
-            if expenses:
-                st.dataframe(
-                    expenses,
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
-                st.info("No expense records yet.")
-
-        except Exception as e:
-            st.error(f"Unable to load expenses: {e}")
-
-    # ============================================================
-    # RECEIPT REGISTER
-    # ============================================================
-
-    with reg3:
-
-        st.subheader("💰 Receipt Register")
-
-        with st.form("receipt_register_form", clear_on_submit=True):
-
-            r1, r2 = st.columns(2)
-
-            receipt_no = r1.text_input(
-                "Receipt No.",
-                key="receipt_no"
-            )
-
-            receipt_date = r2.date_input(
-                "Receipt Date",
-                key="receipt_date"
-            )
-
-            r3, r4 = st.columns(2)
-
-            amount = r3.number_input(
-                "Amount Received",
-                min_value=0.0,
-                step=0.01,
-                key="receipt_amount"
-            )
-
-            payment_mode = r4.selectbox(
-                "Payment Mode",
-                [
-                    "CASH",
-                    "BANK",
-                    "UPI",
-                    "CHEQUE",
-                    "OTHER"
-                ],
-                key="receipt_payment_mode"
-            )
-
-            narration = st.text_input(
-                "Narration",
-                key="receipt_narration"
-            )
-
-            reference_no = st.text_input(
-                "Reference No.",
-                key="receipt_reference"
-            )
-
-            if bank_options:
-
-                bank_label = st.selectbox(
-                    "Bank / Cash Account",
-                    ["None"] + list(bank_options.keys()),
-                    key="receipt_bank"
+                receipts = (
+                    supabase
+                    .table("accounts_receipts")
+                    .select("*")
+                    .order("receipt_date", desc=True)
+                    .limit(100)
+                    .execute()
+                    .data
+                    or []
                 )
 
-                bank_account_id = (
-                    bank_options.get(bank_label)
-                    if bank_label != "None"
-                    else None
+                if receipts:
+
+                    st.dataframe(
+                        receipts,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                else:
+
+                    st.info("No receipt records yet.")
+
+            except Exception as e:
+
+                st.error(
+                    f"Unable to load receipts: {e}"
                 )
 
-            else:
+
+        # ============================================================
+        # PAYMENTS
+        # ============================================================
+
+        with reg4:
+
+            st.subheader("💳 Payment Register")
+
+            with st.form(
+                "payment_register_form",
+                clear_on_submit=True
+            ):
+
+                pay1, pay2 = st.columns(2)
+
+                payment_no = pay1.text_input(
+                    "Payment No.",
+                    key="payment_no"
+                )
+
+                payment_date = pay2.date_input(
+                    "Payment Date",
+                    key="payment_date"
+                )
+
+                pay3, pay4 = st.columns(2)
+
+                amount = pay3.number_input(
+                    "Amount Paid",
+                    min_value=0.0,
+                    step=0.01,
+                    key="payment_amount"
+                )
+
+                payment_mode = pay4.selectbox(
+                    "Payment Mode",
+                    [
+                        "CASH",
+                        "BANK",
+                        "UPI",
+                        "CHEQUE",
+                        "OTHER"
+                    ],
+                    key="payment_payment_mode"
+                )
+
+                narration = st.text_input(
+                    "Narration",
+                    key="payment_narration"
+                )
+
+                reference_no = st.text_input(
+                    "Reference No.",
+                    key="payment_reference"
+                )
 
                 bank_account_id = None
 
-                st.caption(
-                    "No Cash / Bank accounts have been created yet."
-                )
+                if bank_options:
 
-            save_receipt = st.form_submit_button(
-                "💾 Save Receipt",
-                use_container_width=True
-            )
-
-        if save_receipt:
-
-            if not receipt_no.strip():
-                st.error("Please enter the Receipt No.")
-
-            elif amount <= 0:
-                st.error("Receipt amount must be greater than zero.")
-
-            else:
-
-                try:
-
-                    supabase.table("accounts_receipts").insert({
-                        "receipt_no": receipt_no.strip(),
-                        "receipt_date": receipt_date.isoformat(),
-                        "amount": amount,
-                        "payment_mode": payment_mode,
-                        "bank_account_id": bank_account_id,
-                        "reference_no": reference_no.strip() or None,
-                        "narration": narration.strip() or None
-                    }).execute()
-
-                    st.success(
-                        f"Receipt {receipt_no} saved successfully."
+                    bank_label = st.selectbox(
+                        "Cash / Bank Account",
+                        ["None"] + list(bank_options.keys()),
+                        key="payment_bank"
                     )
 
-                    st.rerun()
+                    if bank_label != "None":
 
-                except Exception as e:
+                        bank_account_id = bank_options[
+                            bank_label
+                        ]
+
+                save_payment = st.form_submit_button(
+                    "💾 Save Payment",
+                    use_container_width=True
+                )
+
+            if save_payment:
+
+                if not payment_no.strip():
+
+                    st.error("Please enter the Payment No.")
+
+                elif amount <= 0:
+
                     st.error(
-                        f"Unable to save receipt: {e}"
+                        "Payment amount must be greater than zero."
                     )
 
-        st.divider()
+                else:
 
-        try:
+                    try:
 
-            receipts = (
-                supabase
-                .table("accounts_receipts")
-                .select("*")
-                .order("receipt_date", desc=True)
-                .limit(100)
-                .execute()
-                .data
-                or []
-            )
+                        supabase.table(
+                            "accounts_payments"
+                        ).insert({
+                            "payment_no":
+                                payment_no.strip(),
 
-            if receipts:
-                st.dataframe(
-                    receipts,
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
-                st.info("No receipt records yet.")
+                            "payment_date":
+                                payment_date.isoformat(),
 
-        except Exception as e:
-            st.error(f"Unable to load receipts: {e}")
+                            "amount":
+                                amount,
 
-    # ============================================================
-    # PAYMENT REGISTER
-    # ============================================================
+                            "payment_mode":
+                                payment_mode,
 
-    with reg4:
+                            "bank_account_id":
+                                bank_account_id,
 
-        st.subheader("💳 Payment Register")
+                            "reference_no":
+                                reference_no.strip() or None,
 
-        with st.form("payment_register_form", clear_on_submit=True):
+                            "narration":
+                                narration.strip() or None,
 
-            pay1, pay2 = st.columns(2)
+                            "entered_by":
+                                str(user.id)
+                        }).execute()
 
-            payment_no = pay1.text_input(
-                "Payment No.",
-                key="payment_no"
-            )
+                        st.success(
+                            "Payment saved successfully."
+                        )
 
-            payment_date = pay2.date_input(
-                "Payment Date",
-                key="payment_date"
-            )
+                        st.rerun()
 
-            pay3, pay4 = st.columns(2)
+                    except Exception as e:
 
-            amount = pay3.number_input(
-                "Amount Paid",
-                min_value=0.0,
-                step=0.01,
-                key="payment_amount"
-            )
+                        st.error(
+                            f"Unable to save payment: {e}"
+                        )
 
-            payment_mode = pay4.selectbox(
-                "Payment Mode",
-                [
-                    "CASH",
-                    "BANK",
-                    "UPI",
-                    "CHEQUE",
-                    "OTHER"
-                ],
-                key="payment_payment_mode"
-            )
+            st.divider()
 
-            narration = st.text_input(
-                "Narration",
-                key="payment_narration"
-            )
+            try:
 
-            reference_no = st.text_input(
-                "Reference No.",
-                key="payment_reference"
-            )
-
-            if bank_options:
-
-                bank_label = st.selectbox(
-                    "Bank / Cash Account",
-                    ["None"] + list(bank_options.keys()),
-                    key="payment_bank"
+                payments = (
+                    supabase
+                    .table("accounts_payments")
+                    .select("*")
+                    .order("payment_date", desc=True)
+                    .limit(100)
+                    .execute()
+                    .data
+                    or []
                 )
 
-                bank_account_id = (
-                    bank_options.get(bank_label)
-                    if bank_label != "None"
-                    else None
-                )
+                if payments:
 
-            else:
-
-                bank_account_id = None
-
-                st.caption(
-                    "No Cash / Bank accounts have been created yet."
-                )
-
-            save_payment = st.form_submit_button(
-                "💾 Save Payment",
-                use_container_width=True
-            )
-
-        if save_payment:
-
-            if not payment_no.strip():
-                st.error("Please enter the Payment No.")
-
-            elif amount <= 0:
-                st.error("Payment amount must be greater than zero.")
-
-            else:
-
-                try:
-
-                    supabase.table("accounts_payments").insert({
-                        "payment_no": payment_no.strip(),
-                        "payment_date": payment_date.isoformat(),
-                        "amount": amount,
-                        "payment_mode": payment_mode,
-                        "bank_account_id": bank_account_id,
-                        "reference_no": reference_no.strip() or None,
-                        "narration": narration.strip() or None
-                    }).execute()
-
-                    st.success(
-                        f"Payment {payment_no} saved successfully."
+                    st.dataframe(
+                        payments,
+                        use_container_width=True,
+                        hide_index=True
                     )
 
-                    st.rerun()
+                else:
 
-                except Exception as e:
+                    st.info("No payment records yet.")
+
+            except Exception as e:
+
+                st.error(
+                    f"Unable to load payments: {e}"
+                )
+
+
+        # ============================================================
+        # CASH / BANK
+        # ============================================================
+
+        with reg5:
+
+            st.subheader("🏦 Cash / Bank Accounts")
+
+            with st.form(
+                "cash_bank_form",
+                clear_on_submit=True
+            ):
+
+                b1, b2 = st.columns(2)
+
+                account_name = b1.text_input(
+                    "Account Name",
+                    key="cash_bank_name"
+                )
+
+                account_type = b2.selectbox(
+                    "Account Type",
+                    [
+                        "CASH",
+                        "BANK",
+                        "UPI",
+                        "OTHER"
+                    ],
+                    key="cash_bank_type"
+                )
+
+                b3, b4 = st.columns(2)
+
+                bank_name = b3.text_input(
+                    "Bank Name",
+                    key="cash_bank_bank_name"
+                )
+
+                account_number = b4.text_input(
+                    "Account Number",
+                    key="cash_bank_account_number"
+                )
+
+                b5, b6 = st.columns(2)
+
+                ifsc_code = b5.text_input(
+                    "IFSC Code",
+                    key="cash_bank_ifsc"
+                )
+
+                opening_balance = b6.number_input(
+                    "Opening Balance",
+                    min_value=0.0,
+                    step=0.01,
+                    key="cash_bank_opening"
+                )
+
+                save_bank = st.form_submit_button(
+                    "💾 Add Cash / Bank Account",
+                    use_container_width=True
+                )
+
+            if save_bank:
+
+                if not account_name.strip():
+
                     st.error(
-                        f"Unable to save payment: {e}"
+                        "Please enter an account name."
                     )
 
-        st.divider()
+                else:
 
-        try:
+                    try:
 
-            payments = (
-                supabase
-                .table("accounts_payments")
-                .select("*")
-                .order("payment_date", desc=True)
-                .limit(100)
-                .execute()
-                .data
-                or []
-            )
+                        supabase.table(
+                            "cash_bank_accounts"
+                        ).insert({
+                            "account_name":
+                                account_name.strip(),
 
-            if payments:
-                st.dataframe(
-                    payments,
-                    use_container_width=True,
-                    hide_index=True
+                            "account_type":
+                                account_type,
+
+                            "bank_name":
+                                bank_name.strip() or None,
+
+                            "account_number":
+                                account_number.strip() or None,
+
+                            "ifsc_code":
+                                ifsc_code.strip() or None,
+
+                            "opening_balance":
+                                opening_balance,
+
+                            "active":
+                                True
+                        }).execute()
+
+                        st.success(
+                            f"{account_name} added successfully."
+                        )
+
+                        st.rerun()
+
+                    except Exception as e:
+
+                        st.error(
+                            f"Unable to create account: {e}"
+                        )
+
+            st.divider()
+
+            try:
+
+                bank_accounts = (
+                    supabase
+                    .table("cash_bank_accounts")
+                    .select("*")
+                    .order("account_name")
+                    .execute()
+                    .data
+                    or []
                 )
-            else:
-                st.info("No payment records yet.")
 
-        except Exception as e:
-            st.error(f"Unable to load payments: {e}")
+                if bank_accounts:
 
-    # ============================================================
-    # CASH / BANK REGISTER
-    # ============================================================
+                    display_accounts = []
 
-    with reg5:
+                    for account in bank_accounts:
 
-        st.subheader("🏦 Cash / Bank Accounts")
+                        display_accounts.append({
+                            "Account Name":
+                                account.get("account_name"),
 
-        with st.form("cash_bank_form", clear_on_submit=True):
+                            "Type":
+                                account.get("account_type"),
 
-            b1, b2 = st.columns(2)
+                            "Bank":
+                                account.get("bank_name"),
 
-            account_name = b1.text_input(
-                "Account Name",
-                key="cash_bank_name"
-            )
+                            "Account Number":
+                                account.get("account_number"),
 
-            account_type = b2.selectbox(
-                "Account Type",
-                [
-                    "CASH",
-                    "BANK",
-                    "UPI",
-                    "OTHER"
-                ],
-                key="cash_bank_type"
-            )
+                            "IFSC":
+                                account.get("ifsc_code"),
 
-            b3, b4 = st.columns(2)
+                            "Opening Balance":
+                                account.get("opening_balance"),
 
-            bank_name = b3.text_input(
-                "Bank Name",
-                key="cash_bank_bank_name"
-            )
+                            "Active":
+                                account.get("active")
+                        })
 
-            account_number = b4.text_input(
-                "Account Number",
-                key="cash_bank_account_number"
-            )
-
-            b5, b6 = st.columns(2)
-
-            ifsc_code = b5.text_input(
-                "IFSC Code",
-                key="cash_bank_ifsc"
-            )
-
-            opening_balance = b6.number_input(
-                "Opening Balance",
-                min_value=0.0,
-                step=0.01,
-                key="cash_bank_opening"
-            )
-
-            save_bank = st.form_submit_button(
-                "💾 Add Cash / Bank Account",
-                use_container_width=True
-            )
-
-        if save_bank:
-
-            if not account_name.strip():
-                st.error("Please enter an account name.")
-
-            else:
-
-                try:
-
-                    supabase.table("cash_bank_accounts").insert({
-                        "account_name": account_name.strip(),
-                        "account_type": account_type,
-                        "bank_name": bank_name.strip() or None,
-                        "account_number": account_number.strip() or None,
-                        "ifsc_code": ifsc_code.strip() or None,
-                        "opening_balance": opening_balance,
-                        "active": True
-                    }).execute()
-
-                    st.success(
-                        f"{account_name} added successfully."
+                    st.dataframe(
+                        display_accounts,
+                        use_container_width=True,
+                        hide_index=True
                     )
 
-                    st.rerun()
+                else:
 
-                except Exception as e:
-                    st.error(
-                        f"Unable to create cash / bank account: {e}"
+                    st.info(
+                        "No Cash / Bank accounts created yet."
                     )
 
-        st.divider()
+            except Exception as e:
 
-        try:
-
-            bank_accounts = (
-                supabase
-                .table("cash_bank_accounts")
-                .select("*")
-                .order("account_name")
-                .execute()
-                .data
-                or []
-            )
-
-            if bank_accounts:
-
-                display_accounts = []
-
-                for account in bank_accounts:
-
-                    display_accounts.append({
-                        "Account Name":
-                            account.get("account_name"),
-
-                        "Type":
-                            account.get("account_type"),
-
-                        "Bank":
-                            account.get("bank_name"),
-
-                        "Account Number":
-                            account.get("account_number"),
-
-                        "IFSC":
-                            account.get("ifsc_code"),
-
-                        "Opening Balance":
-                            account.get("opening_balance"),
-
-                        "Active":
-                            account.get("active")
-                    })
-
-                st.dataframe(
-                    display_accounts,
-                    use_container_width=True,
-                    hide_index=True
+                st.error(
+                    f"Unable to load Cash / Bank accounts: {e}"
                 )
-
-            else:
-
-                st.info(
-                    "No Cash / Bank accounts created yet."
-                )
-
-        except Exception as e:
-            st.error(
-                f"Unable to load Cash / Bank accounts: {e}"
-            )
-
 
 # ---------------------------------------------------------------------
 # DOCUMENTS
