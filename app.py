@@ -2,6 +2,7 @@ import hashlib
 from datetime import date
 import streamlit as st
 from supabase import create_client
+import uuid
 
 st.set_page_config(
     page_title="S.P. Enterprise Control System",
@@ -1243,10 +1244,11 @@ elif page == "Accounts":
     # ACCOUNTING NAVIGATION
     # ================================================================
 
-    account_tab1, account_tab2, account_tab3 = st.tabs([
+    account_tab1, account_tab2, account_tab3, account_tab4 = st.tabs([
         "📚 Chart of Accounts",
         "🧾 Sales Register",
-        "📊 Accounting Registers"
+        "📊 Accounting Registers",
+        "📒 Journal Entries"
     ])
 
     # ================================================================
@@ -3449,6 +3451,532 @@ with account_tab1:
                 st.error(
                     f"Unable to load Cash / Bank accounts: {e}"
                 )
+
+
+
+    # ================================================================
+    # TAB 4 - JOURNAL ENTRIES
+    # ================================================================
+
+with account_tab4:
+
+    st.subheader("📒 Journal Entries")
+
+    st.caption(
+        "Record balanced double-entry journal transactions "
+        "for S.P. Enterprise."
+    )
+
+    # ------------------------------------------------------------
+    # LOAD CHART OF ACCOUNTS
+    # ------------------------------------------------------------
+
+    try:
+
+        journal_accounts_response = (
+            supabase
+            .table("chart_of_accounts")
+            .select(
+                "id, account_code, account_name, account_type"
+            )
+            .eq("active", True)
+            .order("account_code")
+            .execute()
+        )
+
+        journal_accounts = (
+            journal_accounts_response.data or []
+        )
+
+    except Exception as e:
+
+        journal_accounts = []
+
+        st.error(
+            "Unable to load Chart of Accounts for Journal Entries."
+        )
+
+        st.code(str(e))
+
+
+    journal_account_options = {
+
+        f'{account.get("account_code", "")} - '
+        f'{account.get("account_name", "")} '
+        f'({account.get("account_type", "")})':
+            account.get("id")
+
+        for account in journal_accounts
+
+        if account.get("id")
+    }
+
+
+    if not journal_account_options:
+
+        st.warning(
+            "No active Chart of Accounts found. "
+            "Create accounts before recording journal entries."
+        )
+
+    else:
+
+        # ========================================================
+        # NEW JOURNAL ENTRY
+        # ========================================================
+
+        with st.expander(
+            "➕ Create Journal Entry",
+            expanded=True
+        ):
+
+            j1, j2, j3 = st.columns(3)
+
+            journal_date = j1.date_input(
+                "Entry Date",
+                value=date.today(),
+                key="journal_entry_date"
+            )
+
+            voucher_type = j2.selectbox(
+                "Voucher Type",
+                [
+                    "JOURNAL",
+                    "ADJUSTMENT",
+                    "OPENING",
+                    "TRANSFER",
+                    "OTHER"
+                ],
+                key="journal_voucher_type"
+            )
+
+            reference_type = j3.selectbox(
+                "Reference Type",
+                [
+                    "MANUAL",
+                    "EXPENSE",
+                    "PURCHASE",
+                    "SALES",
+                    "RECEIPT",
+                    "PAYMENT",
+                    "OTHER"
+                ],
+                key="journal_reference_type"
+            )
+
+            reference_no = st.text_input(
+                "Reference No.",
+                key="journal_reference_no"
+            )
+
+            journal_narration = st.text_area(
+                "Narration",
+                placeholder="Enter the reason / description for this journal entry.",
+                key="journal_narration"
+            )
+
+            st.divider()
+
+            st.markdown("### Journal Lines")
+
+            # ----------------------------------------------------
+            # LINE 1
+            # ----------------------------------------------------
+
+            l1, l2, l3 = st.columns([5, 2, 2])
+
+            line1_account_label = l1.selectbox(
+                "Account - Debit",
+                list(journal_account_options.keys()),
+                key="journal_debit_account"
+            )
+
+            line1_debit = l2.number_input(
+                "Debit (₹)",
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                key="journal_debit_amount"
+            )
+
+            line1_credit = l3.number_input(
+                "Credit (₹)",
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                key="journal_credit_amount"
+            )
+
+            # ----------------------------------------------------
+            # LINE 2
+            # ----------------------------------------------------
+
+            l4, l5, l6 = st.columns([5, 2, 2])
+
+            line2_account_label = l4.selectbox(
+                "Account - Credit",
+                list(journal_account_options.keys()),
+                key="journal_credit_account"
+            )
+
+            line2_debit = l5.number_input(
+                "Debit (₹)",
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                key="journal_line2_debit"
+            )
+
+            line2_credit = l6.number_input(
+                "Credit (₹)",
+                min_value=0.0,
+                step=0.01,
+                format="%.2f",
+                key="journal_line2_credit"
+            )
+
+            # ----------------------------------------------------
+            # CALCULATE TOTALS
+            # ----------------------------------------------------
+
+            total_debit = (
+                line1_debit
+                + line2_debit
+            )
+
+            total_credit = (
+                line1_credit
+                + line2_credit
+            )
+
+            difference = (
+                total_debit
+                - total_credit
+            )
+
+            st.divider()
+
+            t1, t2, t3 = st.columns(3)
+
+            t1.metric(
+                "Total Debit",
+                f"₹{total_debit:,.2f}"
+            )
+
+            t2.metric(
+                "Total Credit",
+                f"₹{total_credit:,.2f}"
+            )
+
+            t3.metric(
+                "Difference",
+                f"₹{difference:,.2f}"
+            )
+
+            # ----------------------------------------------------
+            # BALANCE STATUS
+            # ----------------------------------------------------
+
+            if (
+                total_debit > 0
+                and abs(difference) < 0.01
+            ):
+
+                st.success(
+                    "✓ Journal entry is balanced."
+                )
+
+            elif total_debit == 0 and total_credit == 0:
+
+                st.info(
+                    "Enter debit and credit amounts."
+                )
+
+            else:
+
+                st.warning(
+                    "⚠ Journal entry is not balanced. "
+                    "Total Debit must equal Total Credit."
+                )
+
+            # ----------------------------------------------------
+            # SAVE JOURNAL
+            # ----------------------------------------------------
+
+            save_journal = st.button(
+                "💾 Save Journal Entry",
+                type="primary",
+                use_container_width=True,
+                key="save_manual_journal"
+            )
+
+            if save_journal:
+
+                # ------------------------------------------------
+                # VALIDATION
+                # ------------------------------------------------
+
+                if not journal_narration.strip():
+
+                    st.error(
+                        "Journal narration is required."
+                    )
+
+                elif total_debit <= 0:
+
+                    st.error(
+                        "Journal amount must be greater than zero."
+                    )
+
+                elif abs(difference) >= 0.01:
+
+                    st.error(
+                        "Journal entry cannot be saved because "
+                        "Debit and Credit are not equal."
+                    )
+
+                elif (
+                    line1_debit > 0
+                    and line1_credit > 0
+                ):
+
+                    st.error(
+                        "A journal line cannot contain both "
+                        "Debit and Credit."
+                    )
+
+                elif (
+                    line2_debit > 0
+                    and line2_credit > 0
+                ):
+
+                    st.error(
+                        "A journal line cannot contain both "
+                        "Debit and Credit."
+                    )
+
+                else:
+
+                    try:
+
+                        # ----------------------------------------
+                        # GENERATE JOURNAL NUMBER
+                        # ----------------------------------------
+
+                        journal_number = (
+                            "JV-"
+                            + journal_date.strftime("%Y%m%d")
+                            + "-"
+                            + uuid.uuid4().hex[:6].upper()
+                        )
+
+                        # ----------------------------------------
+                        # CREATE JOURNAL HEADER
+                        # ----------------------------------------
+
+                        journal_header = {
+
+                            "entry_no":
+                                journal_number,
+
+                            "entry_date":
+                                journal_date.isoformat(),
+
+                            "voucher_type":
+                                voucher_type,
+
+                            "reference_type":
+                                reference_type,
+
+                            "reference_id":
+                                None,
+
+                            "narration":
+                                journal_narration.strip(),
+
+                            "entered_by":
+                                str(user.id)
+                        }
+
+                        journal_response = (
+                            supabase
+                            .table("journal_entries")
+                            .insert(journal_header)
+                            .execute()
+                        )
+
+                        created_journal = (
+                            journal_response.data[0]
+                        )
+
+                        journal_entry_id = (
+                            created_journal["id"]
+                        )
+
+                        # ----------------------------------------
+                        # CREATE JOURNAL LINES
+                        # ----------------------------------------
+
+                        debit_account_id = (
+                            journal_account_options[
+                                line1_account_label
+                            ]
+                        )
+
+                        credit_account_id = (
+                            journal_account_options[
+                                line2_account_label
+                            ]
+                        )
+
+                        journal_lines = [
+
+                            {
+                                "journal_entry_id":
+                                    journal_entry_id,
+
+                                "account_id":
+                                    debit_account_id,
+
+                                "party_id":
+                                    None,
+
+                                "debit":
+                                    line1_debit,
+
+                                "credit":
+                                    0,
+
+                                "narration":
+                                    journal_narration.strip()
+                            },
+
+                            {
+                                "journal_entry_id":
+                                    journal_entry_id,
+
+                                "account_id":
+                                    credit_account_id,
+
+                                "party_id":
+                                    None,
+
+                                "debit":
+                                    0,
+
+                                "credit":
+                                    line2_credit,
+
+                                "narration":
+                                    journal_narration.strip()
+                            }
+                        ]
+
+                        (
+                            supabase
+                            .table("journal_lines")
+                            .insert(journal_lines)
+                            .execute()
+                        )
+
+                        st.success(
+                            f"Journal Entry "
+                            f"{journal_number} "
+                            f"saved successfully."
+                        )
+
+                        st.rerun()
+
+                    except Exception as e:
+
+                        st.error(
+                            "Unable to save Journal Entry."
+                        )
+
+                        st.code(str(e))
+
+
+        # ========================================================
+        # JOURNAL REGISTER
+        # ========================================================
+
+        st.divider()
+
+        st.subheader("📋 Journal Register")
+
+        try:
+
+            journal_entries_response = (
+                supabase
+                .table("journal_entries")
+                .select("*")
+                .order("entry_date", desc=True)
+                .limit(100)
+                .execute()
+            )
+
+            journal_entries = (
+                journal_entries_response.data or []
+            )
+
+        except Exception as e:
+
+            journal_entries = []
+
+            st.error(
+                "Unable to load Journal Register."
+            )
+
+            st.code(str(e))
+
+
+        if journal_entries:
+
+            display_journals = []
+
+            for journal in journal_entries:
+
+                display_journals.append({
+
+                    "Entry No.":
+                        journal.get("entry_no"),
+
+                    "Date":
+                        journal.get("entry_date"),
+
+                    "Voucher Type":
+                        journal.get("voucher_type"),
+
+                    "Reference Type":
+                        journal.get("reference_type"),
+
+                    "Reference ID":
+                        journal.get("reference_id"),
+
+                    "Narration":
+                        journal.get("narration"),
+
+                    "Entered By":
+                        journal.get("entered_by"),
+
+                    "Created At":
+                        journal.get("created_at")
+                })
+
+            st.dataframe(
+                display_journals,
+                use_container_width=True,
+                hide_index=True
+            )
+
+        else:
+
+            st.info(
+                "No journal entries recorded yet."
+            )
+
+
+
 
 # ---------------------------------------------------------------------
 # DOCUMENTS
