@@ -3440,7 +3440,7 @@ with account_tab1:
 # DOCUMENTS
 # ---------------------------------------------------------------------
 
-elif page == "Documents":
+if page == "Documents":
 
     st.title("📁 Document Register")
 
