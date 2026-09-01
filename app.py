@@ -2877,364 +2877,339 @@ with account_tab1:
                 )
 
 
-        # ============================================================
-        # EXPENSES
-        # ============================================================
+       # ============================================================
+# EXPENSES
+# ============================================================
 
-        with reg2:
+with reg2:
 
-            st.subheader("💸 Expense Register")
+    st.subheader("💸 Expense Register")
 
-            if not account_options:
+    if not account_options:
+
+        st.warning(
+            "No active Chart of Accounts found. "
+            "Create accounts first."
+        )
+
+    else:
+
+        with st.form(
+            "expense_register_form",
+            clear_on_submit=True
+        ):
+
+            # --------------------------------------------------------
+            # BASIC EXPENSE DETAILS
+            # --------------------------------------------------------
+
+            e1, e2 = st.columns(2)
+
+            expense_date = e1.date_input(
+                "Expense Date",
+                key="expense_date"
+            )
+
+            expense_account_label = e2.selectbox(
+                "Expense Account",
+                list(account_options.keys()),
+                key="expense_account"
+            )
+
+            expense_account_id = account_options[
+                expense_account_label
+            ]
+
+            # --------------------------------------------------------
+            # DESCRIPTION / PAYMENT MODE
+            # --------------------------------------------------------
+
+            e3, e4 = st.columns(2)
+
+            description = e3.text_input(
+                "Description",
+                key="expense_description"
+            )
+
+            payment_mode = e4.selectbox(
+                "Payment Mode",
+                [
+                    "CASH",
+                    "BANK",
+                    "UPI",
+                    "CHEQUE",
+                    "CREDIT",
+                    "OTHER"
+                ],
+                key="expense_payment_mode"
+            )
+
+            # --------------------------------------------------------
+            # PAYMENT / CREDIT ACCOUNT
+            # --------------------------------------------------------
+
+            payment_account_options = {
+                label: account_id
+                for label, account_id in account_options.items()
+            }
+
+            if payment_account_options:
+
+                payment_account_label = st.selectbox(
+                    "Paid From / Payable Account",
+                    list(payment_account_options.keys()),
+                    key="expense_payment_account"
+                )
+
+                payment_account_id = payment_account_options[
+                    payment_account_label
+                ]
+
+            else:
+
+                payment_account_id = None
 
                 st.warning(
-                    "No active Chart of Accounts found. "
-                    "Create accounts first."
+                    "No Chart of Accounts ledger is available."
+                )
+
+            # --------------------------------------------------------
+            # AMOUNTS
+            # --------------------------------------------------------
+
+            e5, e6, e7 = st.columns(3)
+
+            taxable_value = e5.number_input(
+                "Taxable Value",
+                min_value=0.0,
+                step=0.01,
+                key="expense_taxable"
+            )
+
+            gst_amount = e6.number_input(
+                "GST Amount",
+                min_value=0.0,
+                step=0.01,
+                key="expense_gst"
+            )
+
+            total_amount = e7.number_input(
+                "Total Amount",
+                min_value=0.0,
+                step=0.01,
+                key="expense_total"
+            )
+
+            # --------------------------------------------------------
+            # REFERENCE
+            # --------------------------------------------------------
+
+            reference_no = st.text_input(
+                "Reference No.",
+                key="expense_reference"
+            )
+
+            # --------------------------------------------------------
+            # SAVE BUTTON
+            # --------------------------------------------------------
+
+            save_expense = st.form_submit_button(
+                "💾 Save Expense",
+                use_container_width=True
+            )
+
+        # ============================================================
+        # SAVE EXPENSE + POST JOURNAL
+        # ============================================================
+
+        if save_expense:
+
+            if not description.strip():
+
+                st.error(
+                    "Please enter an expense description."
+                )
+
+            elif total_amount <= 0:
+
+                st.error(
+                    "Total amount must be greater than zero."
+                )
+
+            elif payment_account_id is None:
+
+                st.error(
+                    "Please select a Paid From / Payable Account."
                 )
 
             else:
 
-                with st.form(
-                    "expense_register_form",
-                    clear_on_submit=True
-                ):
+                try:
 
-                    e1, e2 = st.columns(2)
+                    # ------------------------------------------------
+                    # SAVE EXPENSE REGISTER
+                    # ------------------------------------------------
 
-                    expense_date = e1.date_input(
-                        "Expense Date",
-                        key="expense_date"
+                    expense_response = (
+                        supabase
+                        .table("accounts_expenses")
+                        .insert({
+                            "expense_date":
+                                expense_date.isoformat(),
+
+                            "expense_account_id":
+                                expense_account_id,
+
+                            "description":
+                                description.strip(),
+
+                            "taxable_value":
+                                taxable_value,
+
+                            "gst_amount":
+                                gst_amount,
+
+                            "total_amount":
+                                total_amount,
+
+                            "payment_mode":
+                                payment_mode,
+
+                            "reference_no":
+                                reference_no.strip() or None,
+
+                            "entered_by":
+                                str(user.id)
+                        })
+                        .execute()
                     )
 
-                    expense_account_label = e2.selectbox(
-                        "Expense Account",
-                        list(account_options.keys()),
-                        key="expense_account"
+                    if not expense_response.data:
+
+                        raise Exception(
+                            "Expense record could not be created."
+                        )
+
+                    created_expense = (
+                        expense_response.data[0]
                     )
 
-                    expense_account_id = account_options[
-                        expense_account_label
+                    expense_id = created_expense["id"]
+
+                    # ------------------------------------------------
+                    # CREATE JOURNAL LINES
+                    # ------------------------------------------------
+
+                    journal_lines = [
+
+                        {
+                            "account_id":
+                                expense_account_id,
+
+                            "party_id":
+                                None,
+
+                            "debit":
+                                total_amount,
+
+                            "credit":
+                                0,
+
+                            "narration":
+                                description.strip()
+                        },
+
+                        {
+                            "account_id":
+                                payment_account_id,
+
+                            "party_id":
+                                None,
+
+                            "debit":
+                                0,
+
+                            "credit":
+                                total_amount,
+
+                            "narration":
+                                description.strip()
+                        }
+
                     ]
 
-                    e3, e4 = st.columns(2)
+                    # ------------------------------------------------
+                    # POST JOURNAL
+                    # ------------------------------------------------
 
-                    description = e3.text_input(
-                        "Description",
-                        key="expense_description"
+                    journal_number = create_journal_entry(
+                        entry_date=expense_date,
+                        voucher_type="EXPENSE",
+                        reference_type="EXPENSE",
+                        reference_id=expense_id,
+                        narration=description.strip(),
+                        lines=journal_lines,
+                        entered_by=user.id
                     )
 
-                    payment_mode = e4.selectbox(
-    "Payment Mode",
-    [
-        "CASH",
-        "BANK",
-        "UPI",
-        "CHEQUE",
-        "CREDIT",
-        "OTHER"
-    ],
-    key="expense_payment_mode"
-)
-
-
-# ------------------------------------------------------------
-# PAYMENT / CREDIT ACCOUNT
-# ------------------------------------------------------------
-
-payment_account_options = {
-    label: account_id
-    for label, account_id in account_options.items()
-}
-
-if payment_account_options:
-
-    payment_account_label = st.selectbox(
-        "Paid From / Payable Account",
-        list(payment_account_options.keys()),
-        key="expense_payment_account"
-    )
-
-    payment_account_id = payment_account_options[
-        payment_account_label
-    ]
-
-else:
-
-    payment_account_id = None
-
-    st.warning(
-        "No Chart of Accounts ledger is available."
-    )
-
-
-payment_mode = e4.selectbox(
-    "Payment Mode",
-    [
-        "CASH",
-        "BANK",
-        "UPI",
-        "CHEQUE",
-        "CREDIT",
-        "OTHER"
-    ],
-    key="expense_payment_mode"
-)
-
-
-# ------------------------------------------------------------
-# PAYMENT / CREDIT ACCOUNT
-# ------------------------------------------------------------
-
-payment_account_options = {
-    label: account_id
-    for label, account_id in account_options.items()
-}
-
-if payment_account_options:
-
-    payment_account_label = st.selectbox(
-        "Paid From / Payable Account",
-        list(payment_account_options.keys()),
-        key="expense_payment_account"
-    )
-
-    payment_account_id = payment_account_options[
-        payment_account_label
-    ]
-
-else:
-
-    payment_account_id = None
-
-    st.warning(
-        "No Chart of Accounts ledger is available."
-    )
-
-
-e5, e6, e7 = st.columns(3)
-
-taxable_value = e5.number_input(
-    "Taxable Value",
-    min_value=0.0,
-    step=0.01,
-    key="expense_taxable"
-)
-
-gst_amount = e6.number_input(
-    "GST Amount",
-    min_value=0.0,
-    step=0.01,
-    key="expense_gst"
-)
-
-total_amount = e7.number_input(
-    "Total Amount",
-    min_value=0.0,
-    step=0.01,
-    key="expense_total"
-)
-
-                    reference_no = st.text_input(
-                        "Reference No.",
-                        key="expense_reference"
+                    st.success(
+                        f"Expense recorded successfully. "
+                        f"Journal {journal_number} posted."
                     )
 
-                    save_expense = st.form_submit_button(
-                        "💾 Save Expense",
-                        use_container_width=True
+                    st.rerun()
+
+                except Exception as e:
+
+                    st.error(
+                        "Unable to save expense and post journal."
                     )
 
-                if save_expense:
-
-                    if not description.strip():
-
-                        st.error(
-                            "Please enter an expense description."
-                        )
-
-                    elif total_amount <= 0:
-
-                        st.error(
-                            "Total amount must be greater than zero."
-                        )
-
-                    else:
-
-                        try:
-
-    # ------------------------------------------------------------
-    # SAVE EXPENSE REGISTER
-    # ------------------------------------------------------------
-
-    expense_response = (
-        supabase
-        .table("accounts_expenses")
-        .insert({
-
-            "expense_date":
-                expense_date.isoformat(),
-
-            "expense_account_id":
-                expense_account_id,
-
-            "description":
-                description.strip(),
-
-            "taxable_value":
-                taxable_value,
-
-            "gst_amount":
-                gst_amount,
-
-            "total_amount":
-                total_amount,
-
-            "payment_mode":
-                payment_mode,
-
-            "reference_no":
-                reference_no.strip() or None,
-
-            "entered_by":
-                str(user.id)
-
-        })
-        .execute()
-    )
-
-    if not expense_response.data:
-
-        raise Exception(
-            "Expense record could not be created."
-        )
-
-    created_expense = (
-        expense_response.data[0]
-    )
-
-    expense_id = created_expense["id"]
-
-    # ------------------------------------------------------------
-    # CREATE JOURNAL LINES
-    # ------------------------------------------------------------
-
-    journal_lines = [
-
-        {
-            "account_id":
-                expense_account_id,
-
-            "party_id":
-                None,
-
-            "debit":
-                total_amount,
-
-            "credit":
-                0,
-
-            "narration":
-                description.strip()
-        },
-
-        {
-            "account_id":
-                payment_account_id,
-
-            "party_id":
-                None,
-
-            "debit":
-                0,
-
-            "credit":
-                total_amount,
-
-            "narration":
-                description.strip()
-        }
-
-    ]
-
-    # ------------------------------------------------------------
-    # POST JOURNAL
-    # ------------------------------------------------------------
-
-    journal_number = create_journal_entry(
-
-        entry_date=expense_date,
-
-        voucher_type="EXPENSE",
-
-        reference_type="EXPENSE",
-
-        reference_id=expense_id,
-
-        narration=description.strip(),
-
-        lines=journal_lines,
-
-        entered_by=user.id
-    )
-
-    st.success(
-        f"Expense recorded successfully. "
-        f"Journal {journal_number} posted."
-    )
-
-    st.rerun()
-
-except Exception as e:
-
-    st.error(
-        "Unable to save expense and post journal."
-    )
-
-    st.code(str(e))
-
-                        except Exception as e:
-
-                            st.error(
-                                f"Unable to save expense: {e}"
-                            )
-
-            st.divider()
-
-            try:
-
-                expenses = (
-                    supabase
-                    .table("accounts_expenses")
-                    .select("*")
-                    .order("expense_date", desc=True)
-                    .limit(100)
-                    .execute()
-                    .data
-                    or []
-                )
-
-                if expenses:
-
-                    st.dataframe(
-                        expenses,
-                        use_container_width=True,
-                        hide_index=True
-                    )
-
-                else:
-
-                    st.info("No expense records yet.")
-
-            except Exception as e:
-
-                st.error(
-                    f"Unable to load expenses: {e}"
-                )
-
+                    st.code(str(e))
 
         # ============================================================
-        # RECEIPTS
+        # EXPENSE REGISTER
         # ============================================================
+
+        st.divider()
+
+        try:
+
+            expenses = (
+                supabase
+                .table("accounts_expenses")
+                .select("*")
+                .order("expense_date", desc=True)
+                .limit(100)
+                .execute()
+                .data
+                or []
+            )
+
+            if expenses:
+
+                st.dataframe(
+                    expenses,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+            else:
+
+                st.info(
+                    "No expense records yet."
+                )
+
+        except Exception as e:
+
+            st.error(
+                f"Unable to load expenses: {e}"
+            )
+
+
+# ============================================================
+# RECEIPTS
+# ============================================================
 
         with reg3:
 
