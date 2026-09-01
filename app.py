@@ -1253,282 +1253,587 @@ elif page == "Accounts":
     # TAB 1 - CHART OF ACCOUNTS
     # ================================================================
 
-    with account_tab1:
+with account_tab4:
 
-        st.subheader("📚 Chart of Accounts")
+    st.subheader("📚 Chart of Accounts")
 
-        st.caption(
-            "Master list of all ledger accounts used by the business."
+    st.caption(
+        "Create and manage the accounting structure used by "
+        "Sales, Purchases, Expenses, Receipts and Payments."
+    )
+
+    # ------------------------------------------------------------
+    # LOAD ACTIVE ACCOUNTS
+    # ------------------------------------------------------------
+
+    try:
+
+        coa_response = (
+            supabase
+            .table("chart_of_accounts")
+            .select("*")
+            .order("account_code")
+            .execute()
         )
 
-        try:
+        coa_accounts = coa_response.data or []
 
-            accounts = (
-                supabase
-                .table("chart_of_accounts")
-                .select("*")
-                .order("account_name")
-                .execute()
-                .data
+    except Exception as e:
+
+        st.error(
+            f"Unable to load Chart of Accounts: {e}"
+        )
+
+        coa_accounts = []
+
+    # ------------------------------------------------------------
+    # CREATE NEW ACCOUNT
+    # ------------------------------------------------------------
+
+    st.divider()
+
+    st.subheader("➕ Create Account")
+
+    with st.form(
+        "create_chart_account_form",
+        clear_on_submit=True
+    ):
+
+        c1, c2 = st.columns(2)
+
+        account_code = c1.text_input(
+            "Account Code",
+            placeholder="Example: 5100",
+            key="coa_account_code"
+        )
+
+        account_name = c2.text_input(
+            "Account Name",
+            placeholder="Example: Office Expenses",
+            key="coa_account_name"
+        )
+
+        c3, c4 = st.columns(2)
+
+        account_type = c3.selectbox(
+            "Account Type",
+            [
+                "ASSET",
+                "LIABILITY",
+                "EQUITY",
+                "INCOME",
+                "EXPENSE"
+            ],
+            key="coa_account_type"
+        )
+
+        # --------------------------------------------------------
+        # PARENT ACCOUNT
+        # --------------------------------------------------------
+
+        parent_options = {
+            "None": None
+        }
+
+        for account in coa_accounts:
+
+            if account.get("active", True):
+
+                label = (
+                    f'{account.get("account_code", "")} - '
+                    f'{account.get("account_name", "")}'
+                )
+
+                parent_options[label] = account["id"]
+
+        parent_label = c4.selectbox(
+            "Parent Account",
+            list(parent_options.keys()),
+            key="coa_parent_account"
+        )
+
+        parent_id = parent_options[parent_label]
+
+        c5, c6, c7 = st.columns(3)
+
+        opening_balance = c5.number_input(
+            "Opening Balance",
+            min_value=0.0,
+            step=0.01,
+            format="%.2f",
+            key="coa_opening_balance"
+        )
+
+        opening_balance_type = c6.selectbox(
+            "Opening Balance Type",
+            [
+                "DEBIT",
+                "CREDIT"
+            ],
+            key="coa_opening_balance_type"
+        )
+
+        unit_code = c7.text_input(
+            "Unit Code",
+            placeholder="Optional",
+            key="coa_unit_code"
+        )
+
+        create_account = st.form_submit_button(
+            "💾 Create Account",
+            type="primary",
+            use_container_width=True
+        )
+
+    # ------------------------------------------------------------
+    # SAVE ACCOUNT
+    # ------------------------------------------------------------
+
+    if create_account:
+
+        clean_code = account_code.strip()
+        clean_name = account_name.strip()
+        clean_unit = unit_code.strip() or None
+
+        if not clean_code:
+
+            st.error(
+                "Account code is required."
             )
 
-        except Exception as e:
+        elif not clean_name:
 
-            st.error("Unable to load Chart of Accounts.")
-            st.code(str(e))
-            accounts = []
+            st.error(
+                "Account name is required."
+            )
 
-        # ------------------------------------------------------------
+        else:
+
+            try:
+
+                # ------------------------------------------------
+                # CHECK DUPLICATE ACCOUNT CODE
+                # ------------------------------------------------
+
+                duplicate = (
+                    supabase
+                    .table("chart_of_accounts")
+                    .select("id")
+                    .eq("account_code", clean_code)
+                    .limit(1)
+                    .execute()
+                )
+
+                if duplicate.data:
+
+                    st.error(
+                        f"Account code {clean_code} already exists."
+                    )
+
+                else:
+
+                    account_data = {
+
+                        "account_code":
+                            clean_code,
+
+                        "account_name":
+                            clean_name,
+
+                        "account_type":
+                            account_type,
+
+                        "parent_id":
+                            parent_id,
+
+                        "opening_balance":
+                            opening_balance,
+
+                        "opening_balance_type":
+                            opening_balance_type,
+
+                        "active":
+                            True,
+
+                        "unit_code":
+                            clean_unit
+                    }
+
+                    (
+                        supabase
+                        .table("chart_of_accounts")
+                        .insert(account_data)
+                        .execute()
+                    )
+
+                    st.success(
+                        f"Account "
+                        f"{clean_code} - {clean_name} "
+                        f"created successfully."
+                    )
+
+                    st.rerun()
+
+            except Exception as e:
+
+                st.error(
+                    f"Unable to create account: {e}"
+                )
+
+    # ============================================================
+    # ACCOUNT LIST
+    # ============================================================
+
+    st.divider()
+
+    st.subheader("📋 Account List")
+
+    if not coa_accounts:
+
+        st.info(
+            "No Chart of Accounts entries found. "
+            "Create your first account above."
+        )
+
+    else:
+
+        # --------------------------------------------------------
         # SUMMARY
-        # ------------------------------------------------------------
+        # --------------------------------------------------------
 
-        total_accounts = len(accounts)
+        active_accounts = [
+            account
+            for account in coa_accounts
+            if account.get("active", True)
+        ]
 
-        account_types = {}
+        assets = [
+            account
+            for account in active_accounts
+            if account.get("account_type") == "ASSET"
+        ]
 
-        for account in accounts:
+        liabilities = [
+            account
+            for account in active_accounts
+            if account.get("account_type") == "LIABILITY"
+        ]
 
-            account_type = account.get("account_type") or "OTHER"
+        equity = [
+            account
+            for account in active_accounts
+            if account.get("account_type") == "EQUITY"
+        ]
 
-            account_types[account_type] = (
-                account_types.get(account_type, 0) + 1
-            )
+        income = [
+            account
+            for account in active_accounts
+            if account.get("account_type") == "INCOME"
+        ]
 
-        s1, s2, s3, s4 = st.columns(4)
+        expenses = [
+            account
+            for account in active_accounts
+            if account.get("account_type") == "EXPENSE"
+        ]
+
+        s1, s2, s3, s4, s5 = st.columns(5)
 
         s1.metric(
-            "Total Accounts",
-            total_accounts
+            "Assets",
+            len(assets)
         )
 
         s2.metric(
-            "Assets",
-            account_types.get("ASSET", 0)
+            "Liabilities",
+            len(liabilities)
         )
 
         s3.metric(
-            "Liabilities",
-            account_types.get("LIABILITY", 0)
+            "Equity",
+            len(equity)
         )
 
         s4.metric(
-            "Income / Expense",
-            account_types.get("INCOME", 0)
-            + account_types.get("EXPENSE", 0)
+            "Income",
+            len(income)
+        )
+
+        s5.metric(
+            "Expenses",
+            len(expenses)
         )
 
         st.divider()
 
-        # ------------------------------------------------------------
-        # SEARCH / FILTER
-        # ------------------------------------------------------------
+        # --------------------------------------------------------
+        # FILTER
+        # --------------------------------------------------------
 
         f1, f2 = st.columns(2)
 
-        search_account = f1.text_input(
-            "🔎 Search Account",
-            placeholder="Search by account name or code",
-            key="account_search"
+        account_filter = f1.selectbox(
+            "Filter by Account Type",
+            [
+                "ALL",
+                "ASSET",
+                "LIABILITY",
+                "EQUITY",
+                "INCOME",
+                "EXPENSE"
+            ],
+            key="coa_account_filter"
         )
 
-        available_types = sorted(
-            list(
-                set(
-                    str(x.get("account_type"))
-                    for x in accounts
-                    if x.get("account_type")
-                )
-            )
+        status_filter = f2.selectbox(
+            "Status",
+            [
+                "ACTIVE",
+                "INACTIVE",
+                "ALL"
+            ],
+            key="coa_status_filter"
         )
-
-        type_filter = f2.selectbox(
-            "Account Type",
-            ["ALL"] + available_types,
-            key="account_type_filter"
-        )
-
-        # ------------------------------------------------------------
-        # DISPLAY ACCOUNTS
-        # ------------------------------------------------------------
 
         filtered_accounts = []
 
-        for account in accounts:
+        for account in coa_accounts:
 
-            code = str(account.get("unit_code") or "")
-            name = str(account.get("account_name") or "")
-            account_type = str(
-                account.get("account_type") or ""
+            account_active = account.get(
+                "active",
+                True
             )
 
-            search_text = (
-                code + " " + name
-            ).lower()
+            if account_filter != "ALL":
 
-            if search_account.strip():
+                if account.get(
+                    "account_type"
+                ) != account_filter:
 
-                if search_account.lower().strip() not in search_text:
                     continue
 
-            if (
-                type_filter != "ALL"
-                and account_type != type_filter
-            ):
-                continue
+            if status_filter == "ACTIVE":
 
-            filtered_accounts.append({
-                "Code": account.get("unit_code"),
-                "Account Name": account.get("account_name"),
-                "Type": account.get("account_type"),
-                "Parent ID": account.get("parent_id"),
-                "Opening Balance": account.get("opening_balance")
-            })
+                if not account_active:
+                    continue
 
-        st.dataframe(
-            filtered_accounts,
-            use_container_width=True,
-            hide_index=True
-        )
+            elif status_filter == "INACTIVE":
 
-        # ------------------------------------------------------------
-        # ADD ACCOUNT
-        # ------------------------------------------------------------
+                if account_active:
+                    continue
 
-        with st.expander("➕ Create New Account"):
+            filtered_accounts.append(account)
 
-            with st.form("new_chart_account"):
+        # --------------------------------------------------------
+        # DISPLAY ACCOUNTS
+        # --------------------------------------------------------
 
-                c1, c2 = st.columns(2)
+        if filtered_accounts:
 
-                new_code = c1.text_input(
-                    "Account Code",
-                    placeholder="Example: 1100"
+            display_rows = []
+
+            for account in filtered_accounts:
+
+                parent_name = ""
+
+                parent_id_value = account.get(
+                    "parent_id"
                 )
 
-                new_name = c2.text_input(
-                    "Account Name",
-                    placeholder="Example: SBI Current Account"
-                )
+                if parent_id_value:
 
-                c1, c2, c3 = st.columns(3)
+                    for parent in coa_accounts:
 
-                new_type = c1.selectbox(
-                    "Account Type",
-                    [
-                        "ASSET",
-                        "LIABILITY",
-                        "EQUITY",
-                        "INCOME",
-                        "EXPENSE"
-                    ]
-                )
+                        if parent.get("id") == parent_id_value:
 
-                parent_options = {
-                    "No Parent": None
-                }
-
-                for account in accounts:
-
-                    account_id = account.get("id")
-
-                    if account_id:
-
-                        label = (
-                            f'{account.get("unit_code") or ""} - '
-                            f'{account.get("account_name") or ""}'
-                        )
-
-                        parent_options[label] = account_id
-
-                new_parent = c2.selectbox(
-                    "Parent Account",
-                    list(parent_options.keys())
-                )
-
-                new_opening = c3.number_input(
-                    "Opening Balance (₹)",
-                    min_value=0.0,
-                    step=100.0
-                )
-
-                create_account = st.form_submit_button(
-                    "Create Account",
-                    type="primary"
-                )
-
-                if create_account:
-
-                    if not new_code.strip():
-
-                        st.error("Account code is required.")
-
-                    elif not new_name.strip():
-
-                        st.error("Account name is required.")
-
-                    else:
-
-                        duplicate = any(
-                            str(x.get("unit_code") or "")
-                            .strip()
-                            .upper()
-                            == new_code.strip().upper()
-                            or
-                            str(x.get("account_name") or "")
-                            .strip()
-                            .upper()
-                            == new_name.strip().upper()
-                            for x in accounts
-                        )
-
-                        if duplicate:
-
-                            st.error(
-                                "An account with this code or "
-                                "account name already exists."
+                            parent_name = (
+                                f'{parent.get("account_code", "")} - '
+                                f'{parent.get("account_name", "")}'
                             )
 
-                        else:
+                            break
 
-                            account_data = {
-                                "unit_code":
-                                    new_code.strip(),
+                display_rows.append({
 
-                                "account_name":
-                                    new_name.strip(),
+                    "Code":
+                        account.get("account_code", ""),
 
-                                "account_type":
-                                    new_type,
+                    "Account Name":
+                        account.get("account_name", ""),
 
-                                "parent_id":
-                                    parent_options[new_parent],
+                    "Type":
+                        account.get("account_type", ""),
 
-                                "opening_balance":
-                                    new_opening
-                            }
+                    "Parent Account":
+                        parent_name or "-",
 
-                            try:
+                    "Opening Balance":
+                        account.get(
+                            "opening_balance",
+                            0
+                        ),
 
-                                (
-                                    supabase
-                                    .table("chart_of_accounts")
-                                    .insert(account_data)
-                                    .execute()
-                                )
+                    "Balance Type":
+                        account.get(
+                            "opening_balance_type",
+                            ""
+                        ),
 
-                                st.success(
-                                    "Account created successfully."
-                                )
+                    "Unit":
+                        account.get(
+                            "unit_code"
+                        ) or "-",
 
-                                st.rerun()
+                    "Status":
+                        "Active"
+                        if account.get("active", True)
+                        else "Inactive"
+                })
 
-                            except Exception as e:
+            st.dataframe(
+                display_rows,
+                use_container_width=True,
+                hide_index=True
+            )
 
-                                st.error(
-                                    "Unable to create account."
-                                )
+        else:
 
-                                st.code(str(e))
+            st.info(
+                "No accounts match the selected filters."
+            )
+
+    # ============================================================
+    # ACCOUNT MANAGEMENT
+    # ============================================================
+
+    st.divider()
+
+    st.subheader("⚙️ Account Management")
+
+    management_options = {}
+
+    for account in coa_accounts:
+
+        label = (
+            f'{account.get("account_code", "")} - '
+            f'{account.get("account_name", "")}'
+        )
+
+        management_options[label] = account
+
+    if management_options:
+
+        selected_management_label = st.selectbox(
+            "Select Account",
+            list(management_options.keys()),
+            key="coa_management_account"
+        )
+
+        selected_management_account = management_options[
+            selected_management_label
+        ]
+
+        m1, m2 = st.columns(2)
+
+        current_status = selected_management_account.get(
+            "active",
+            True
+        )
+
+        if current_status:
+
+            with m1:
+
+                deactivate_account = st.button(
+                    "🚫 Deactivate Account",
+                    use_container_width=True,
+                    key="coa_deactivate_account"
+                )
+
+            if deactivate_account:
+
+                try:
+
+                    (
+                        supabase
+                        .table("chart_of_accounts")
+                        .update({
+                            "active": False
+                        })
+                        .eq(
+                            "id",
+                            selected_management_account["id"]
+                        )
+                        .execute()
+                    )
+
+                    st.success(
+                        "Account deactivated successfully."
+                    )
+
+                    st.rerun()
+
+                except Exception as e:
+
+                    st.error(
+                        f"Unable to deactivate account: {e}"
+                    )
+
+        else:
+
+            with m1:
+
+                activate_account = st.button(
+                    "✅ Activate Account",
+                    use_container_width=True,
+                    key="coa_activate_account"
+                )
+
+            if activate_account:
+
+                try:
+
+                    (
+                        supabase
+                        .table("chart_of_accounts")
+                        .update({
+                            "active": True
+                        })
+                        .eq(
+                            "id",
+                            selected_management_account["id"]
+                        )
+                        .execute()
+                    )
+
+                    st.success(
+                        "Account activated successfully."
+                    )
+
+                    st.rerun()
+
+                except Exception as e:
+
+                    st.error(
+                        f"Unable to activate account: {e}"
+                    )
+
+        with m2:
+
+            st.write(
+                f"**Selected:** "
+                f"{selected_management_account.get('account_name', '')}"
+            )
+
+            st.write(
+                f"**Type:** "
+                f"{selected_management_account.get('account_type', '')}"
+            )
+
+            st.write(
+                f"**Code:** "
+                f"{selected_management_account.get('account_code', '')}"
+            )
 
 
     # ================================================================
