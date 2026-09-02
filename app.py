@@ -2894,10 +2894,10 @@ elif page == "Accounts":
 
                 else:
 
-                    with st.form(
-                        "expense_register_form",
-                        clear_on_submit=True
-                    ):
+                     with st.form(
+                         "expense_register_form",
+                         clear_on_submit=True
+                     ):
 
             # --------------------------------------------------------
             # BASIC EXPENSE DETAILS
