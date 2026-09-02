@@ -2877,27 +2877,27 @@ elif page == "Accounts":
                 )
 
 
-       # ============================================================
-# EXPENSES
-# ============================================================
+            # ============================================================
+            # EXPENSES
+            # ============================================================
 
-with reg2:
+            with reg2:
 
-    st.subheader("💸 Expense Register")
+                st.subheader("💸 Expense Register")
 
-    if not account_options:
+                if not account_options:
 
-        st.warning(
-            "No active Chart of Accounts found. "
-            "Create accounts first."
-        )
+                    st.warning(
+                        "No active Chart of Accounts found. "
+                        "Create accounts first."
+                    )
 
-    else:
+                else:
 
-        with st.form(
-            "expense_register_form",
-            clear_on_submit=True
-        ):
+                    with st.form(
+                        "expense_register_form",
+                        clear_on_submit=True
+                    ):
 
             # --------------------------------------------------------
             # BASIC EXPENSE DETAILS
