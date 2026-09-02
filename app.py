@@ -2902,7 +2902,7 @@ elif page == "Accounts":
             # --------------------------------------------------------
             # BASIC EXPENSE DETAILS
             # --------------------------------------------------------
-
+                         
             e1, e2 = st.columns(2)
 
             expense_date = e1.date_input(
