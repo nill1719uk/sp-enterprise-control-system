@@ -3569,28 +3569,28 @@ with reg2:
                     and str(a.get("account_type", "")).upper() == "ASSET"
                 }
 
-                if cash_bank_chart_options:
+                                if cash_bank_chart_options:
 
-                   cash_bank_chart_label = st.selectbox(
-                       "Linked Chart of Accounts Ledger",
-                       list(cash_bank_chart_options.keys()),
-                       key="cash_bank_chart_account"
-                 )
+                    cash_bank_chart_label = st.selectbox(
+                        "Linked Chart of Accounts Ledger",
+                        list(cash_bank_chart_options.keys()),
+                        key="cash_bank_chart_account"
+                    )
 
-                 cash_bank_chart_account_id = (
-                     cash_bank_chart_options[
-                         cash_bank_chart_label
-                     ]
-                 )
+                    cash_bank_chart_account_id = (
+                        cash_bank_chart_options[
+                            cash_bank_chart_label
+                        ]
+                    )
 
-             else:
+                else:
 
-                 cash_bank_chart_account_id = None
+                    cash_bank_chart_account_id = None
 
-                 st.warning(
-                     "Create an ASSET account in Chart of Accounts "
-                     "before adding a Cash / Bank account."
-               )
+                    st.warning(
+                        "Create an ASSET account in Chart of Accounts "
+                        "before adding a Cash / Bank account."
+                    )
                 
                 account_type = b2.selectbox(
                     "Account Type",
