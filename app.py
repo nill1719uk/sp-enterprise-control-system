@@ -3646,31 +3646,32 @@ with reg2:
 
                     try:
 
-                       supabase.table("cash_bank_accounts").insert({
+                        supabase.table(
+                            "cash_bank_accounts"
+                        ).insert({
+                            "account_name":
+                                account_name.strip(),
 
-                           "account_name":
-                               account_name.strip(),
+                            "account_type":
+                                account_type,
 
-                           "account_type":
-                               account_type,
-
-                           "bank_name":
+                            "bank_name":
                                 bank_name.strip() or None,
 
-                           "account_number":
-                               account_number.strip() or None,
+                            "account_number":
+                                account_number.strip() or None,
 
-                           "ifsc_code":
-                               ifsc_code.strip() or None,
+                            "ifsc_code":
+                                ifsc_code.strip() or None,
 
-                           "opening_balance":
-                               opening_balance,
+                            "opening_balance":
+                                opening_balance,
 
-                           "chart_account_id":
-                               cash_bank_chart_account_id,
+                            "chart_account_id":
+                                cash_bank_chart_account_id,
 
-                           "active":
-                               True
+                            "active":
+                                True
 
                         }).execute()
 
