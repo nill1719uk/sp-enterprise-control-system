@@ -1386,589 +1386,589 @@ elif page == "Accounts":
         # LOAD EXISTING ACCOUNTS
         # ------------------------------------------------------------
 
-    try:
+        try:
 
-        accounts_response = (
-            supabase
-            .table("chart_of_accounts")
-            .select("*")
-            .order("account_code")
-            .execute()
-        )
-
-        accounts = (
-            accounts_response.data
-            or []
-        )
-
-    except Exception as e:
-
-        st.error(
-            f"Unable to load Chart of Accounts: {e}"
-        )
-
-        accounts = []
-
-
-    # ------------------------------------------------------------
-    # ACCOUNT TYPES
-    # ------------------------------------------------------------
-
-    account_types = [
-        "ASSET",
-        "LIABILITY",
-        "EQUITY",
-        "INCOME",
-        "EXPENSE"
-    ]
-
-
-    # ------------------------------------------------------------
-    # CREATE NEW ACCOUNT
-    # ------------------------------------------------------------
-
-    st.markdown("### ➕ Create New Account")
-
-    with st.form(
-        "create_chart_account_form",
-        clear_on_submit=True
-    ):
-
-        c1, c2 = st.columns(2)
-
-        account_code = c1.text_input(
-            "Account Code",
-            placeholder="Example: 1001",
-            key="coa_account_code"
-        )
-
-        account_name = c2.text_input(
-            "Account Name",
-            placeholder="Example: Cash in Hand",
-            key="coa_account_name"
-        )
-
-
-        c3, c4 = st.columns(2)
-
-        account_type = c3.selectbox(
-            "Account Type",
-            account_types,
-            key="coa_account_type"
-        )
-
-
-        # --------------------------------------------------------
-        # PARENT ACCOUNT
-        # --------------------------------------------------------
-
-        parent_options = {
-            "No Parent Account": None
-        }
-
-        for account in accounts:
-
-            if account.get("active", True):
-
-                label = (
-                    f"{account.get('account_code', '')} - "
-                    f"{account.get('account_name', '')}"
-                )
-
-                parent_options[label] = account["id"]
-
-
-        parent_account_label = c4.selectbox(
-            "Parent Account",
-            list(parent_options.keys()),
-            key="coa_parent_account"
-        )
-
-        parent_id = parent_options[
-            parent_account_label
-        ]
-
-
-        # --------------------------------------------------------
-        # OPENING BALANCE
-        # --------------------------------------------------------
-
-        c5, c6, c7 = st.columns(3)
-
-        opening_balance = c5.number_input(
-            "Opening Balance",
-            min_value=0.0,
-            step=0.01,
-            key="coa_opening_balance"
-        )
-
-        opening_balance_type = c6.selectbox(
-            "Opening Balance Type",
-            [
-                "DEBIT",
-                "CREDIT"
-            ],
-            key="coa_opening_balance_type"
-        )
-
-        unit_code = c7.text_input(
-            "Unit Code",
-            placeholder="Example: HO",
-            key="coa_unit_code"
-        )
-
-
-        st.caption(
-            "Opening balance is optional. Enter 0 if the "
-            "account has no opening balance."
-        )
-
-
-        create_account = st.form_submit_button(
-            "💾 Create Account",
-            use_container_width=True
-        )
-
-
-    # ------------------------------------------------------------
-    # SAVE ACCOUNT
-    # ------------------------------------------------------------
-
-    if create_account:
-
-        clean_code = account_code.strip()
-        clean_name = account_name.strip()
-        clean_unit = unit_code.strip()
-
-
-        if not clean_code:
-
-            st.error(
-                "Account Code is required."
-            )
-
-
-        elif not clean_name:
-
-            st.error(
-                "Account Name is required."
-            )
-
-
-        else:
-
-            # ----------------------------------------------------
-            # CHECK DUPLICATE ACCOUNT CODE
-            # ----------------------------------------------------
-
-            duplicate_check = (
+            accounts_response = (
                 supabase
                 .table("chart_of_accounts")
-                .select("id")
-                .eq("account_code", clean_code)
+                .select("*")
+                .order("account_code")
                 .execute()
             )
 
+            accounts = (
+                accounts_response.data
+                or []
+            )
 
-            if duplicate_check.data:
+        except Exception as e:
 
-                st.error(
-                    f"Account Code '{clean_code}' already exists."
-                )
+            st.error(
+                f"Unable to load Chart of Accounts: {e}"
+            )
 
-
-            else:
-
-                try:
-
-                    account_data = {
-
-                        "account_code":
-                            clean_code,
-
-                        "account_name":
-                            clean_name,
-
-                        "account_type":
-                            account_type,
-
-                        "parent_id":
-                            parent_id,
-
-                        "opening_balance":
-                            opening_balance,
-
-                        "opening_balance_type":
-                            opening_balance_type,
-
-                        "active":
-                            True,
-
-                        "unit_code":
-                            clean_unit or None
-                    }
+            accounts = []
 
 
-                    (
-                        supabase
-                        .table("chart_of_accounts")
-                        .insert(account_data)
-                        .execute()
-                    )
+        # ------------------------------------------------------------
+        # ACCOUNT TYPES
+        # ------------------------------------------------------------
 
-
-                    st.success(
-                        f"Account '{clean_name}' "
-                        f"created successfully."
-                    )
-
-                    st.rerun()
-
-
-                except Exception as e:
-
-                    st.error(
-                        f"Unable to create account: {e}"
-                    )
-
-
-    st.divider()
-
-
-    # ============================================================
-    # ACCOUNT LIST
-    # ============================================================
-
-    st.markdown("### 📋 Account List")
-
-
-    # ------------------------------------------------------------
-    # FILTERS
-    # ------------------------------------------------------------
-
-    f1, f2, f3 = st.columns(3)
-
-
-    search_account = f1.text_input(
-        "🔎 Search Account",
-        placeholder="Code or account name",
-        key="coa_search"
-    )
-
-
-    type_filter = f2.selectbox(
-        "Account Type",
-        [
-            "ALL",
+        account_types = [
             "ASSET",
             "LIABILITY",
             "EQUITY",
             "INCOME",
             "EXPENSE"
-        ],
-        key="coa_type_filter"
-    )
-
-
-    status_filter = f3.selectbox(
-        "Status",
-        [
-            "ACTIVE",
-            "INACTIVE",
-            "ALL"
-        ],
-        key="coa_status_filter"
-    )
-
-
-    # ------------------------------------------------------------
-    # FILTER ACCOUNTS
-    # ------------------------------------------------------------
-
-    filtered_accounts = []
-
-
-    for account in accounts:
-
-        code = str(
-            account.get("account_code") or ""
-        )
-
-        name = str(
-            account.get("account_name") or ""
-        )
-
-        acc_type = str(
-            account.get("account_type") or ""
-        )
-
-        active = account.get(
-            "active",
-            True
-        )
-
-
-        # Search filter
-
-        if search_account.strip():
-
-            search_text = (
-                search_account
-                .strip()
-                .lower()
-            )
-
-            if (
-                search_text not in code.lower()
-                and
-                search_text not in name.lower()
-            ):
-
-                continue
-
-
-        # Account type filter
-
-        if (
-            type_filter != "ALL"
-            and acc_type != type_filter
-        ):
-
-            continue
-
-
-        # Status filter
-
-        if status_filter == "ACTIVE" and not active:
-
-            continue
-
-        if status_filter == "INACTIVE" and active:
-
-            continue
-
-
-        filtered_accounts.append(account)
-
-
-    # ------------------------------------------------------------
-    # CREATE PARENT LOOKUP
-    # ------------------------------------------------------------
-
-    account_lookup = {}
-
-    for account in accounts:
-
-        account_lookup[
-            account["id"]
-        ] = (
-            f"{account.get('account_code', '')} - "
-            f"{account.get('account_name', '')}"
-        )
-
-
-    # ------------------------------------------------------------
-    # DISPLAY TABLE
-    # ------------------------------------------------------------
-
-    if filtered_accounts:
-
-        display_accounts = []
-
-
-        for account in filtered_accounts:
-
-            parent_name = "—"
-
-            if account.get("parent_id"):
-
-                parent_name = account_lookup.get(
-                    account["parent_id"],
-                    "—"
-                )
-
-
-            display_accounts.append({
-
-                "Code":
-                    account.get("account_code"),
-
-                "Account Name":
-                    account.get("account_name"),
-
-                "Type":
-                    account.get("account_type"),
-
-                "Parent Account":
-                    parent_name,
-
-                "Opening Balance":
-                    account.get(
-                        "opening_balance",
-                        0
-                    ),
-
-                "Dr / Cr":
-                    account.get(
-                        "opening_balance_type",
-                        ""
-                    ),
-
-                "Unit":
-                    account.get(
-                        "unit_code"
-                    ) or "—",
-
-                "Status":
-                    "ACTIVE"
-                    if account.get("active", True)
-                    else "INACTIVE"
-            })
-
-
-        st.dataframe(
-            display_accounts,
-            use_container_width=True,
-            hide_index=True
-        )
-
-
-    else:
-
-        st.info(
-            "No accounts match the selected filters."
-        )
-
-
-    # ============================================================
-    # ACTIVATE / DEACTIVATE ACCOUNT
-    # ============================================================
-
-    st.divider()
-
-    st.markdown("### ⚙️ Account Status")
-
-
-    active_accounts = {
-
-        f"{a.get('account_code', '')} - "
-        f"{a.get('account_name', '')}":
-            a["id"]
-
-        for a in accounts
-    }
-
-
-    if active_accounts:
-
-        selected_account_label = st.selectbox(
-            "Select Account",
-            list(active_accounts.keys()),
-            key="coa_status_account"
-        )
-
-        selected_account_id = active_accounts[
-            selected_account_label
         ]
 
 
-        selected_account = next(
-            (
-                a
-                for a in accounts
-                if a["id"] == selected_account_id
-            ),
-            None
+        # ------------------------------------------------------------
+        # CREATE NEW ACCOUNT
+        # ------------------------------------------------------------
+
+        st.markdown("### ➕ Create New Account")
+
+        with st.form(
+            "create_chart_account_form",
+            clear_on_submit=True
+        ):
+
+            c1, c2 = st.columns(2)
+
+            account_code = c1.text_input(
+                "Account Code",
+                placeholder="Example: 1001",
+                key="coa_account_code"
+            )
+
+            account_name = c2.text_input(
+                "Account Name",
+                placeholder="Example: Cash in Hand",
+                key="coa_account_name"
+            )
+
+
+            c3, c4 = st.columns(2)
+
+            account_type = c3.selectbox(
+                "Account Type",
+                account_types,
+                key="coa_account_type"
+            )
+
+
+            # --------------------------------------------------------
+            # PARENT ACCOUNT
+            # --------------------------------------------------------
+
+            parent_options = {
+                "No Parent Account": None
+            }
+
+            for account in accounts:
+
+                if account.get("active", True):
+
+                    label = (
+                        f"{account.get('account_code', '')} - "
+                        f"{account.get('account_name', '')}"
+                    )
+
+                    parent_options[label] = account["id"]
+
+
+            parent_account_label = c4.selectbox(
+                "Parent Account",
+                list(parent_options.keys()),
+                key="coa_parent_account"
+            )
+
+            parent_id = parent_options[
+                parent_account_label
+            ]
+
+
+            # --------------------------------------------------------
+            # OPENING BALANCE
+            # --------------------------------------------------------
+
+            c5, c6, c7 = st.columns(3)
+
+            opening_balance = c5.number_input(
+                "Opening Balance",
+                min_value=0.0,
+                step=0.01,
+                key="coa_opening_balance"
+            )
+
+            opening_balance_type = c6.selectbox(
+                "Opening Balance Type",
+                [
+                    "DEBIT",
+                    "CREDIT"
+                ],
+                key="coa_opening_balance_type"
+            )
+
+            unit_code = c7.text_input(
+                "Unit Code",
+                placeholder="Example: HO",
+                key="coa_unit_code"
+            )
+
+
+            st.caption(
+                "Opening balance is optional. Enter 0 if the "
+                "account has no opening balance."
+            )
+
+
+            create_account = st.form_submit_button(
+                "💾 Create Account",
+                use_container_width=True
+            )
+
+
+        # ------------------------------------------------------------
+        # SAVE ACCOUNT
+        # ------------------------------------------------------------
+
+        if create_account:
+
+            clean_code = account_code.strip()
+            clean_name = account_name.strip()
+            clean_unit = unit_code.strip()
+
+
+            if not clean_code:
+
+                st.error(
+                    "Account Code is required."
+                )
+
+
+            elif not clean_name:
+
+                st.error(
+                    "Account Name is required."
+                )
+
+
+            else:
+
+                # ----------------------------------------------------
+                # CHECK DUPLICATE ACCOUNT CODE
+                # ----------------------------------------------------
+
+                duplicate_check = (
+                    supabase
+                    .table("chart_of_accounts")
+                    .select("id")
+                    .eq("account_code", clean_code)
+                    .execute()
+                )
+
+
+                if duplicate_check.data:
+
+                    st.error(
+                        f"Account Code '{clean_code}' already exists."
+                    )
+
+
+                else:
+
+                    try:
+
+                        account_data = {
+
+                            "account_code":
+                                clean_code,
+
+                            "account_name":
+                                clean_name,
+
+                            "account_type":
+                                account_type,
+
+                            "parent_id":
+                                parent_id,
+
+                            "opening_balance":
+                                opening_balance,
+
+                            "opening_balance_type":
+                                opening_balance_type,
+
+                            "active":
+                                True,
+
+                            "unit_code":
+                                clean_unit or None
+                        }
+
+
+                        (
+                            supabase
+                            .table("chart_of_accounts")
+                            .insert(account_data)
+                            .execute()
+                        )
+
+
+                        st.success(
+                            f"Account '{clean_name}' "
+                            f"created successfully."
+                        )
+
+                        st.rerun()
+
+
+                    except Exception as e:
+
+                        st.error(
+                            f"Unable to create account: {e}"
+                        )
+
+
+        st.divider()
+
+
+        # ============================================================
+        # ACCOUNT LIST
+        # ============================================================
+
+        st.markdown("### 📋 Account List")
+
+
+        # ------------------------------------------------------------
+        # FILTERS
+        # ------------------------------------------------------------
+
+        f1, f2, f3 = st.columns(3)
+
+
+        search_account = f1.text_input(
+            "🔎 Search Account",
+            placeholder="Code or account name",
+            key="coa_search"
         )
 
 
-        if selected_account:
+        type_filter = f2.selectbox(
+            "Account Type",
+            [
+                "ALL",
+                "ASSET",
+                "LIABILITY",
+                "EQUITY",
+                "INCOME",
+                "EXPENSE"
+            ],
+            key="coa_type_filter"
+        )
 
-            current_status = selected_account.get(
+
+        status_filter = f3.selectbox(
+            "Status",
+            [
+                "ACTIVE",
+                "INACTIVE",
+                "ALL"
+            ],
+            key="coa_status_filter"
+        )
+
+
+        # ------------------------------------------------------------
+        # FILTER ACCOUNTS
+        # ------------------------------------------------------------
+
+        filtered_accounts = []
+
+
+        for account in accounts:
+
+            code = str(
+                account.get("account_code") or ""
+            )
+
+            name = str(
+                account.get("account_name") or ""
+            )
+
+            acc_type = str(
+                account.get("account_type") or ""
+            )
+
+            active = account.get(
                 "active",
                 True
             )
 
 
-            if current_status:
+            # Search filter
 
-                if st.button(
-                    "🔴 Deactivate Account",
-                    use_container_width=True,
-                    key="deactivate_coa_account"
+            if search_account.strip():
+
+                search_text = (
+                    search_account
+                    .strip()
+                    .lower()
+                )
+
+                if (
+                    search_text not in code.lower()
+                    and
+                    search_text not in name.lower()
                 ):
 
-                    try:
+                    continue
 
-                        (
-                            supabase
-                            .table("chart_of_accounts")
-                            .update({
-                                "active": False
-                            })
-                            .eq(
-                                "id",
-                                selected_account_id
+
+            # Account type filter
+
+            if (
+                type_filter != "ALL"
+                and acc_type != type_filter
+            ):
+
+                continue
+
+
+            # Status filter
+
+            if status_filter == "ACTIVE" and not active:
+
+                continue
+
+            if status_filter == "INACTIVE" and active:
+
+                continue
+
+
+            filtered_accounts.append(account)
+
+
+        # ------------------------------------------------------------
+        # CREATE PARENT LOOKUP
+        # ------------------------------------------------------------
+
+        account_lookup = {}
+
+        for account in accounts:
+
+            account_lookup[
+                account["id"]
+            ] = (
+                f"{account.get('account_code', '')} - "
+                f"{account.get('account_name', '')}"
+            )
+
+
+        # ------------------------------------------------------------
+        # DISPLAY TABLE
+        # ------------------------------------------------------------
+
+        if filtered_accounts:
+
+            display_accounts = []
+
+
+            for account in filtered_accounts:
+
+                parent_name = "—"
+
+                if account.get("parent_id"):
+
+                    parent_name = account_lookup.get(
+                        account["parent_id"],
+                        "—"
+                    )
+
+
+                display_accounts.append({
+
+                    "Code":
+                        account.get("account_code"),
+
+                    "Account Name":
+                        account.get("account_name"),
+
+                    "Type":
+                        account.get("account_type"),
+
+                    "Parent Account":
+                        parent_name,
+
+                    "Opening Balance":
+                        account.get(
+                            "opening_balance",
+                            0
+                        ),
+
+                    "Dr / Cr":
+                        account.get(
+                            "opening_balance_type",
+                            ""
+                        ),
+
+                    "Unit":
+                        account.get(
+                            "unit_code"
+                        ) or "—",
+
+                    "Status":
+                        "ACTIVE"
+                        if account.get("active", True)
+                        else "INACTIVE"
+                })
+
+
+            st.dataframe(
+                display_accounts,
+                use_container_width=True,
+                hide_index=True
+            )
+
+
+        else:
+
+            st.info(
+                "No accounts match the selected filters."
+            )
+
+
+        # ============================================================
+        # ACTIVATE / DEACTIVATE ACCOUNT
+        # ============================================================
+
+        st.divider()
+
+        st.markdown("### ⚙️ Account Status")
+
+
+        active_accounts = {
+
+            f"{a.get('account_code', '')} - "
+            f"{a.get('account_name', '')}":
+                a["id"]
+
+            for a in accounts
+        }
+
+
+        if active_accounts:
+
+            selected_account_label = st.selectbox(
+                "Select Account",
+                list(active_accounts.keys()),
+                key="coa_status_account"
+            )
+
+            selected_account_id = active_accounts[
+                selected_account_label
+            ]
+
+
+            selected_account = next(
+                (
+                    a
+                    for a in accounts
+                    if a["id"] == selected_account_id
+                ),
+                None
+            )
+
+
+            if selected_account:
+
+                current_status = selected_account.get(
+                    "active",
+                    True
+                )
+
+
+                if current_status:
+
+                    if st.button(
+                        "🔴 Deactivate Account",
+                        use_container_width=True,
+                        key="deactivate_coa_account"
+                    ):
+
+                        try:
+
+                            (
+                                supabase
+                                .table("chart_of_accounts")
+                                .update({
+                                    "active": False
+                                })
+                                .eq(
+                                    "id",
+                                    selected_account_id
+                                )
+                                .execute()
                             )
-                            .execute()
-                        )
 
-                        st.success(
-                            "Account deactivated successfully."
-                        )
-
-                        st.rerun()
-
-
-                    except Exception as e:
-
-                        st.error(
-                            f"Unable to deactivate account: {e}"
-                        )
-
-
-            else:
-
-                if st.button(
-                    "🟢 Activate Account",
-                    use_container_width=True,
-                    key="activate_coa_account"
-                ):
-
-                    try:
-
-                        (
-                            supabase
-                            .table("chart_of_accounts")
-                            .update({
-                                "active": True
-                            })
-                            .eq(
-                                "id",
-                                selected_account_id
+                            st.success(
+                                "Account deactivated successfully."
                             )
-                            .execute()
-                        )
 
-                        st.success(
-                            "Account activated successfully."
-                        )
-
-                        st.rerun()
+                            st.rerun()
 
 
-                    except Exception as e:
+                        except Exception as e:
 
-                        st.error(
-                            f"Unable to activate account: {e}"
-                        )
+                            st.error(
+                                f"Unable to deactivate account: {e}"
+                            )
 
 
-    else:
+                else:
 
-        st.info(
-            "No accounts available."
-        )
+                    if st.button(
+                        "🟢 Activate Account",
+                        use_container_width=True,
+                        key="activate_coa_account"
+                    ):
+
+                        try:
+
+                            (
+                                supabase
+                                .table("chart_of_accounts")
+                                .update({
+                                    "active": True
+                                })
+                                .eq(
+                                    "id",
+                                    selected_account_id
+                                )
+                                .execute()
+                            )
+
+                            st.success(
+                                "Account activated successfully."
+                            )
+
+                            st.rerun()
+
+
+                        except Exception as e:
+
+                            st.error(
+                                f"Unable to activate account: {e}"
+                            )
+
+
+        else:
+
+            st.info(
+                "No accounts available."
+            )
 
     # ================================================================
     # TAB 2 - SALES REGISTER
@@ -2894,129 +2894,129 @@ elif page == "Accounts":
 
                 else:
 
-                     with st.form(
-                         "expense_register_form",
-                         clear_on_submit=True
-                     ):
+                    with st.form(
+                        "expense_register_form",
+                        clear_on_submit=True
+                    ):
 
-            # --------------------------------------------------------
-            # BASIC EXPENSE DETAILS
-            # --------------------------------------------------------
+                        # --------------------------------------------------------
+                        # BASIC EXPENSE DETAILS
+                        # --------------------------------------------------------
                          
-            e1, e2 = st.columns(2)
+                        e1, e2 = st.columns(2)
 
-            expense_date = e1.date_input(
-                "Expense Date",
-                key="expense_date"
-            )
+                        expense_date = e1.date_input(
+                            "Expense Date",
+                            key="expense_date"
+                        )
 
-            expense_account_label = e2.selectbox(
-                "Expense Account",
-                list(account_options.keys()),
-                key="expense_account"
-            )
+                        expense_account_label = e2.selectbox(
+                            "Expense Account",
+                            list(account_options.keys()),
+                            key="expense_account"
+                        )
 
-            expense_account_id = account_options[
-                expense_account_label
-            ]
+                        expense_account_id = account_options[
+                            expense_account_label
+                        ]
 
-            # --------------------------------------------------------
-            # DESCRIPTION / PAYMENT MODE
-            # --------------------------------------------------------
+                        # --------------------------------------------------------
+                        # DESCRIPTION / PAYMENT MODE
+                        # --------------------------------------------------------
 
-            e3, e4 = st.columns(2)
+                        e3, e4 = st.columns(2)
 
-            description = e3.text_input(
-                "Description",
-                key="expense_description"
-            )
+                        description = e3.text_input(
+                            "Description",
+                            key="expense_description"
+                        )
 
-            payment_mode = e4.selectbox(
-                "Payment Mode",
-                [
-                    "CASH",
-                    "BANK",
-                    "UPI",
-                    "CHEQUE",
-                    "CREDIT",
-                    "OTHER"
-                ],
-                key="expense_payment_mode"
-            )
+                        payment_mode = e4.selectbox(
+                            "Payment Mode",
+                            [
+                                "CASH",
+                                "BANK",
+                                "UPI",
+                                "CHEQUE",
+                                "CREDIT",
+                                "OTHER"
+                            ],
+                            key="expense_payment_mode"
+                        )
 
-            # --------------------------------------------------------
-            # PAYMENT / CREDIT ACCOUNT
-            # --------------------------------------------------------
+                        # --------------------------------------------------------
+                        # PAYMENT / CREDIT ACCOUNT
+                        # --------------------------------------------------------
 
-            payment_account_options = {
-                label: account_id
-                for label, account_id in account_options.items()
-            }
+                        payment_account_options = {
+                            label: account_id
+                            for label, account_id in account_options.items()
+                        }
 
-            if payment_account_options:
+                        if payment_account_options:
 
-                payment_account_label = st.selectbox(
-                    "Paid From / Payable Account",
-                    list(payment_account_options.keys()),
-                    key="expense_payment_account"
-                )
+                            payment_account_label = st.selectbox(
+                                "Paid From / Payable Account",
+                                list(payment_account_options.keys()),
+                                key="expense_payment_account"
+                            )
 
-                payment_account_id = payment_account_options[
-                    payment_account_label
-                ]
+                            payment_account_id = payment_account_options[
+                                payment_account_label
+                            ]
 
-            else:
+                        else:
 
-                payment_account_id = None
+                            payment_account_id = None
 
-                st.warning(
-                    "No Chart of Accounts ledger is available."
-                )
+                            st.warning(
+                                "No Chart of Accounts ledger is available."
+                            )
 
-            # --------------------------------------------------------
-            # AMOUNTS
-            # --------------------------------------------------------
+                        # --------------------------------------------------------
+                        # AMOUNTS
+                        # --------------------------------------------------------
 
-            e5, e6, e7 = st.columns(3)
+                        e5, e6, e7 = st.columns(3)
 
-            taxable_value = e5.number_input(
-                "Taxable Value",
-                min_value=0.0,
-                step=0.01,
-                key="expense_taxable"
-            )
+                        taxable_value = e5.number_input(
+                            "Taxable Value",
+                            min_value=0.0,
+                            step=0.01,
+                            key="expense_taxable"
+                        )
 
-            gst_amount = e6.number_input(
-                "GST Amount",
-                min_value=0.0,
-                step=0.01,
-                key="expense_gst"
-            )
+                        gst_amount = e6.number_input(
+                            "GST Amount",
+                            min_value=0.0,
+                            step=0.01,
+                            key="expense_gst"
+                        )
 
-            total_amount = e7.number_input(
-                "Total Amount",
-                min_value=0.0,
-                step=0.01,
-                key="expense_total"
-            )
+                        total_amount = e7.number_input(
+                            "Total Amount",
+                            min_value=0.0,
+                            step=0.01,
+                            key="expense_total"
+                        )
 
-            # --------------------------------------------------------
-            # REFERENCE
-            # --------------------------------------------------------
+                        # --------------------------------------------------------
+                        # REFERENCE
+                        # --------------------------------------------------------
 
-            reference_no = st.text_input(
-                "Reference No.",
-                key="expense_reference"
-            )
+                        reference_no = st.text_input(
+                            "Reference No.",
+                            key="expense_reference"
+                        )
 
-            # --------------------------------------------------------
-            # SAVE BUTTON
-            # --------------------------------------------------------
+                        # --------------------------------------------------------
+                        # SAVE BUTTON
+                        # --------------------------------------------------------
 
-            save_expense = st.form_submit_button(
-                "💾 Save Expense",
-                use_container_width=True
-            )
+                        save_expense = st.form_submit_button(
+                            "💾 Save Expense",
+                            use_container_width=True
+                        )
 
         # ============================================================
         # SAVE EXPENSE + POST JOURNAL
@@ -3207,9 +3207,9 @@ elif page == "Accounts":
             )
 
 
-# ============================================================
-# RECEIPTS
-# ============================================================
+        # ============================================================
+        # RECEIPTS
+        # ============================================================
 
         with reg3:
 
@@ -3754,522 +3754,522 @@ elif page == "Accounts":
     # TAB 4 - JOURNAL ENTRIES
     # ================================================================
 
-with account_tab4:
+    with account_tab4:
 
-    st.subheader("📒 Journal Entries")
+        st.subheader("📒 Journal Entries")
 
-    st.caption(
-        "Record balanced double-entry journal transactions "
-        "for S.P. Enterprise."
-    )
-
-    # ------------------------------------------------------------
-    # LOAD CHART OF ACCOUNTS
-    # ------------------------------------------------------------
-
-    try:
-
-        journal_accounts_response = (
-            supabase
-            .table("chart_of_accounts")
-            .select(
-                "id, account_code, account_name, account_type"
-            )
-            .eq("active", True)
-            .order("account_code")
-            .execute()
+        st.caption(
+            "Record balanced double-entry journal transactions "
+            "for S.P. Enterprise."
         )
 
-        journal_accounts = (
-            journal_accounts_response.data or []
-        )
-
-    except Exception as e:
-
-        journal_accounts = []
-
-        st.error(
-            "Unable to load Chart of Accounts for Journal Entries."
-        )
-
-        st.code(str(e))
-
-
-    journal_account_options = {
-
-        f'{account.get("account_code", "")} - '
-        f'{account.get("account_name", "")} '
-        f'({account.get("account_type", "")})':
-            account.get("id")
-
-        for account in journal_accounts
-
-        if account.get("id")
-    }
-
-
-    if not journal_account_options:
-
-        st.warning(
-            "No active Chart of Accounts found. "
-            "Create accounts before recording journal entries."
-        )
-
-    else:
-
-        # ========================================================
-        # NEW JOURNAL ENTRY
-        # ========================================================
-
-        with st.expander(
-            "➕ Create Journal Entry",
-            expanded=True
-        ):
-
-            j1, j2, j3 = st.columns(3)
-
-            journal_date = j1.date_input(
-                "Entry Date",
-                value=date.today(),
-                key="journal_entry_date"
-            )
-
-            voucher_type = j2.selectbox(
-                "Voucher Type",
-                [
-                    "JOURNAL",
-                    "ADJUSTMENT",
-                    "OPENING",
-                    "TRANSFER",
-                    "OTHER"
-                ],
-                key="journal_voucher_type"
-            )
-
-            reference_type = j3.selectbox(
-                "Reference Type",
-                [
-                    "MANUAL",
-                    "EXPENSE",
-                    "PURCHASE",
-                    "SALES",
-                    "RECEIPT",
-                    "PAYMENT",
-                    "OTHER"
-                ],
-                key="journal_reference_type"
-            )
-
-            reference_no = st.text_input(
-                "Reference No.",
-                key="journal_reference_no"
-            )
-
-            journal_narration = st.text_area(
-                "Narration",
-                placeholder="Enter the reason / description for this journal entry.",
-                key="journal_narration"
-            )
-
-            st.divider()
-
-            st.markdown("### Journal Lines")
-
-            # ----------------------------------------------------
-            # LINE 1
-            # ----------------------------------------------------
-
-            l1, l2, l3 = st.columns([5, 2, 2])
-
-            line1_account_label = l1.selectbox(
-                "Account - Debit",
-                list(journal_account_options.keys()),
-                key="journal_debit_account"
-            )
-
-            line1_debit = l2.number_input(
-                "Debit (₹)",
-                min_value=0.0,
-                step=0.01,
-                format="%.2f",
-                key="journal_debit_amount"
-            )
-
-            line1_credit = l3.number_input(
-                "Credit (₹)",
-                min_value=0.0,
-                step=0.01,
-                format="%.2f",
-                key="journal_credit_amount"
-            )
-
-            # ----------------------------------------------------
-            # LINE 2
-            # ----------------------------------------------------
-
-            l4, l5, l6 = st.columns([5, 2, 2])
-
-            line2_account_label = l4.selectbox(
-                "Account - Credit",
-                list(journal_account_options.keys()),
-                key="journal_credit_account"
-            )
-
-            line2_debit = l5.number_input(
-                "Debit (₹)",
-                min_value=0.0,
-                step=0.01,
-                format="%.2f",
-                key="journal_line2_debit"
-            )
-
-            line2_credit = l6.number_input(
-                "Credit (₹)",
-                min_value=0.0,
-                step=0.01,
-                format="%.2f",
-                key="journal_line2_credit"
-            )
-
-            # ----------------------------------------------------
-            # CALCULATE TOTALS
-            # ----------------------------------------------------
-
-            total_debit = (
-                line1_debit
-                + line2_debit
-            )
-
-            total_credit = (
-                line1_credit
-                + line2_credit
-            )
-
-            difference = (
-                total_debit
-                - total_credit
-            )
-
-            st.divider()
-
-            t1, t2, t3 = st.columns(3)
-
-            t1.metric(
-                "Total Debit",
-                f"₹{total_debit:,.2f}"
-            )
-
-            t2.metric(
-                "Total Credit",
-                f"₹{total_credit:,.2f}"
-            )
-
-            t3.metric(
-                "Difference",
-                f"₹{difference:,.2f}"
-            )
-
-            # ----------------------------------------------------
-            # BALANCE STATUS
-            # ----------------------------------------------------
-
-            if (
-                total_debit > 0
-                and abs(difference) < 0.01
-            ):
-
-                st.success(
-                    "✓ Journal entry is balanced."
-                )
-
-            elif total_debit == 0 and total_credit == 0:
-
-                st.info(
-                    "Enter debit and credit amounts."
-                )
-
-            else:
-
-                st.warning(
-                    "⚠ Journal entry is not balanced. "
-                    "Total Debit must equal Total Credit."
-                )
-
-            # ----------------------------------------------------
-            # SAVE JOURNAL
-            # ----------------------------------------------------
-
-            save_journal = st.button(
-                "💾 Save Journal Entry",
-                type="primary",
-                use_container_width=True,
-                key="save_manual_journal"
-            )
-
-            if save_journal:
-
-                # ------------------------------------------------
-                # VALIDATION
-                # ------------------------------------------------
-
-                if not journal_narration.strip():
-
-                    st.error(
-                        "Journal narration is required."
-                    )
-
-                elif total_debit <= 0:
-
-                    st.error(
-                        "Journal amount must be greater than zero."
-                    )
-
-                elif abs(difference) >= 0.01:
-
-                    st.error(
-                        "Journal entry cannot be saved because "
-                        "Debit and Credit are not equal."
-                    )
-
-                elif (
-                    line1_debit > 0
-                    and line1_credit > 0
-                ):
-
-                    st.error(
-                        "A journal line cannot contain both "
-                        "Debit and Credit."
-                    )
-
-                elif (
-                    line2_debit > 0
-                    and line2_credit > 0
-                ):
-
-                    st.error(
-                        "A journal line cannot contain both "
-                        "Debit and Credit."
-                    )
-
-                else:
-
-                    try:
-
-                        # ----------------------------------------
-                        # GENERATE JOURNAL NUMBER
-                        # ----------------------------------------
-
-                        journal_number = (
-                            "JV-"
-                            + journal_date.strftime("%Y%m%d")
-                            + "-"
-                            + uuid.uuid4().hex[:6].upper()
-                        )
-
-                        # ----------------------------------------
-                        # CREATE JOURNAL HEADER
-                        # ----------------------------------------
-
-                        journal_header = {
-
-                            "entry_no":
-                                journal_number,
-
-                            "entry_date":
-                                journal_date.isoformat(),
-
-                            "voucher_type":
-                                voucher_type,
-
-                            "reference_type":
-                                reference_type,
-
-                            "reference_id":
-                                None,
-
-                            "narration":
-                                journal_narration.strip(),
-
-                            "entered_by":
-                                str(user.id)
-                        }
-
-                        journal_response = (
-                            supabase
-                            .table("journal_entries")
-                            .insert(journal_header)
-                            .execute()
-                        )
-
-                        created_journal = (
-                            journal_response.data[0]
-                        )
-
-                        journal_entry_id = (
-                            created_journal["id"]
-                        )
-
-                        # ----------------------------------------
-                        # CREATE JOURNAL LINES
-                        # ----------------------------------------
-
-                        debit_account_id = (
-                            journal_account_options[
-                                line1_account_label
-                            ]
-                        )
-
-                        credit_account_id = (
-                            journal_account_options[
-                                line2_account_label
-                            ]
-                        )
-
-                        journal_lines = [
-
-                            {
-                                "journal_entry_id":
-                                    journal_entry_id,
-
-                                "account_id":
-                                    debit_account_id,
-
-                                "party_id":
-                                    None,
-
-                                "debit":
-                                    line1_debit,
-
-                                "credit":
-                                    0,
-
-                                "narration":
-                                    journal_narration.strip()
-                            },
-
-                            {
-                                "journal_entry_id":
-                                    journal_entry_id,
-
-                                "account_id":
-                                    credit_account_id,
-
-                                "party_id":
-                                    None,
-
-                                "debit":
-                                    0,
-
-                                "credit":
-                                    line2_credit,
-
-                                "narration":
-                                    journal_narration.strip()
-                            }
-                        ]
-
-                        (
-                            supabase
-                            .table("journal_lines")
-                            .insert(journal_lines)
-                            .execute()
-                        )
-
-                        st.success(
-                            f"Journal Entry "
-                            f"{journal_number} "
-                            f"saved successfully."
-                        )
-
-                        st.rerun()
-
-                    except Exception as e:
-
-                        st.error(
-                            "Unable to save Journal Entry."
-                        )
-
-                        st.code(str(e))
-
-
-        # ========================================================
-        # JOURNAL REGISTER
-        # ========================================================
-
-        st.divider()
-
-        st.subheader("📋 Journal Register")
+        # ------------------------------------------------------------
+        # LOAD CHART OF ACCOUNTS
+        # ------------------------------------------------------------
 
         try:
 
-            journal_entries_response = (
+            journal_accounts_response = (
                 supabase
-                .table("journal_entries")
-                .select("*")
-                .order("entry_date", desc=True)
-                .limit(100)
+                .table("chart_of_accounts")
+                .select(
+                    "id, account_code, account_name, account_type"
+                )
+                .eq("active", True)
+                .order("account_code")
                 .execute()
             )
 
-            journal_entries = (
-                journal_entries_response.data or []
+            journal_accounts = (
+                journal_accounts_response.data or []
             )
 
         except Exception as e:
 
-            journal_entries = []
+            journal_accounts = []
 
             st.error(
-                "Unable to load Journal Register."
+                "Unable to load Chart of Accounts for Journal Entries."
             )
 
             st.code(str(e))
 
 
-        if journal_entries:
+        journal_account_options = {
 
-            display_journals = []
+            f'{account.get("account_code", "")} - '
+            f'{account.get("account_name", "")} '
+            f'({account.get("account_type", "")})':
+                account.get("id")
 
-            for journal in journal_entries:
+            for account in journal_accounts
 
-                display_journals.append({
+            if account.get("id")
+        }
 
-                    "Entry No.":
-                        journal.get("entry_no"),
 
-                    "Date":
-                        journal.get("entry_date"),
+        if not journal_account_options:
 
-                    "Voucher Type":
-                        journal.get("voucher_type"),
-
-                    "Reference Type":
-                        journal.get("reference_type"),
-
-                    "Reference ID":
-                        journal.get("reference_id"),
-
-                    "Narration":
-                        journal.get("narration"),
-
-                    "Entered By":
-                        journal.get("entered_by"),
-
-                    "Created At":
-                        journal.get("created_at")
-                })
-
-            st.dataframe(
-                display_journals,
-                use_container_width=True,
-                hide_index=True
+            st.warning(
+                "No active Chart of Accounts found. "
+                "Create accounts before recording journal entries."
             )
 
         else:
 
-            st.info(
-                "No journal entries recorded yet."
-            )
+            # ========================================================
+            # NEW JOURNAL ENTRY
+            # ========================================================
+
+            with st.expander(
+                "➕ Create Journal Entry",
+                expanded=True
+            ):
+
+                j1, j2, j3 = st.columns(3)
+
+                journal_date = j1.date_input(
+                    "Entry Date",
+                    value=date.today(),
+                    key="journal_entry_date"
+                )
+
+                voucher_type = j2.selectbox(
+                    "Voucher Type",
+                    [
+                        "JOURNAL",
+                        "ADJUSTMENT",
+                        "OPENING",
+                        "TRANSFER",
+                        "OTHER"
+                    ],
+                    key="journal_voucher_type"
+                )
+
+                reference_type = j3.selectbox(
+                    "Reference Type",
+                    [
+                        "MANUAL",
+                        "EXPENSE",
+                        "PURCHASE",
+                        "SALES",
+                        "RECEIPT",
+                        "PAYMENT",
+                        "OTHER"
+                    ],
+                    key="journal_reference_type"
+                )
+
+                reference_no = st.text_input(
+                    "Reference No.",
+                    key="journal_reference_no"
+                )
+
+                journal_narration = st.text_area(
+                    "Narration",
+                    placeholder="Enter the reason / description for this journal entry.",
+                    key="journal_narration"
+                )
+
+                st.divider()
+
+                st.markdown("### Journal Lines")
+
+                # ----------------------------------------------------
+                # LINE 1
+                # ----------------------------------------------------
+
+                l1, l2, l3 = st.columns([5, 2, 2])
+
+                line1_account_label = l1.selectbox(
+                    "Account - Debit",
+                    list(journal_account_options.keys()),
+                    key="journal_debit_account"
+                )
+
+                line1_debit = l2.number_input(
+                    "Debit (₹)",
+                    min_value=0.0,
+                    step=0.01,
+                    format="%.2f",
+                    key="journal_debit_amount"
+                )
+
+                line1_credit = l3.number_input(
+                    "Credit (₹)",
+                    min_value=0.0,
+                    step=0.01,
+                    format="%.2f",
+                    key="journal_credit_amount"
+                )
+
+                # ----------------------------------------------------
+                # LINE 2
+                # ----------------------------------------------------
+
+                l4, l5, l6 = st.columns([5, 2, 2])
+
+                line2_account_label = l4.selectbox(
+                    "Account - Credit",
+                    list(journal_account_options.keys()),
+                    key="journal_credit_account"
+                )
+
+                line2_debit = l5.number_input(
+                    "Debit (₹)",
+                    min_value=0.0,
+                    step=0.01,
+                    format="%.2f",
+                    key="journal_line2_debit"
+                )
+
+                line2_credit = l6.number_input(
+                    "Credit (₹)",
+                    min_value=0.0,
+                    step=0.01,
+                    format="%.2f",
+                    key="journal_line2_credit"
+                )
+
+                # ----------------------------------------------------
+                # CALCULATE TOTALS
+                # ----------------------------------------------------
+
+                total_debit = (
+                    line1_debit
+                    + line2_debit
+                )
+
+                total_credit = (
+                    line1_credit
+                    + line2_credit
+                )
+
+                difference = (
+                    total_debit
+                    - total_credit
+                )
+
+                st.divider()
+
+                t1, t2, t3 = st.columns(3)
+
+                t1.metric(
+                    "Total Debit",
+                    f"₹{total_debit:,.2f}"
+                )
+
+                t2.metric(
+                    "Total Credit",
+                    f"₹{total_credit:,.2f}"
+                )
+
+                t3.metric(
+                    "Difference",
+                    f"₹{difference:,.2f}"
+                )
+
+                # ----------------------------------------------------
+                # BALANCE STATUS
+                # ----------------------------------------------------
+
+                if (
+                    total_debit > 0
+                    and abs(difference) < 0.01
+                ):
+
+                    st.success(
+                        "✓ Journal entry is balanced."
+                    )
+
+                elif total_debit == 0 and total_credit == 0:
+
+                    st.info(
+                        "Enter debit and credit amounts."
+                    )
+
+                else:
+
+                    st.warning(
+                        "⚠ Journal entry is not balanced. "
+                        "Total Debit must equal Total Credit."
+                    )
+
+                # ----------------------------------------------------
+                # SAVE JOURNAL
+                # ----------------------------------------------------
+
+                save_journal = st.button(
+                    "💾 Save Journal Entry",
+                    type="primary",
+                    use_container_width=True,
+                    key="save_manual_journal"
+                )
+
+                if save_journal:
+
+                    # ------------------------------------------------
+                    # VALIDATION
+                    # ------------------------------------------------
+
+                    if not journal_narration.strip():
+
+                        st.error(
+                            "Journal narration is required."
+                        )
+
+                    elif total_debit <= 0:
+
+                        st.error(
+                            "Journal amount must be greater than zero."
+                        )
+
+                    elif abs(difference) >= 0.01:
+
+                        st.error(
+                            "Journal entry cannot be saved because "
+                            "Debit and Credit are not equal."
+                        )
+
+                    elif (
+                        line1_debit > 0
+                        and line1_credit > 0
+                    ):
+
+                        st.error(
+                            "A journal line cannot contain both "
+                            "Debit and Credit."
+                        )
+
+                    elif (
+                        line2_debit > 0
+                        and line2_credit > 0
+                    ):
+
+                        st.error(
+                            "A journal line cannot contain both "
+                            "Debit and Credit."
+                        )
+
+                    else:
+
+                        try:
+
+                            # ----------------------------------------
+                            # GENERATE JOURNAL NUMBER
+                            # ----------------------------------------
+
+                            journal_number = (
+                                "JV-"
+                                + journal_date.strftime("%Y%m%d")
+                                + "-"
+                                + uuid.uuid4().hex[:6].upper()
+                            )
+
+                            # ----------------------------------------
+                            # CREATE JOURNAL HEADER
+                            # ----------------------------------------
+
+                            journal_header = {
+
+                                "entry_no":
+                                    journal_number,
+
+                                "entry_date":
+                                    journal_date.isoformat(),
+
+                                "voucher_type":
+                                    voucher_type,
+
+                                "reference_type":
+                                    reference_type,
+
+                                "reference_id":
+                                    None,
+
+                                "narration":
+                                    journal_narration.strip(),
+
+                                "entered_by":
+                                    str(user.id)
+                            }
+
+                            journal_response = (
+                                supabase
+                                .table("journal_entries")
+                                .insert(journal_header)
+                                .execute()
+                            )
+
+                            created_journal = (
+                                journal_response.data[0]
+                            )
+
+                            journal_entry_id = (
+                                created_journal["id"]
+                            )
+
+                            # ----------------------------------------
+                            # CREATE JOURNAL LINES
+                            # ----------------------------------------
+
+                            debit_account_id = (
+                                journal_account_options[
+                                    line1_account_label
+                                ]
+                            )
+
+                            credit_account_id = (
+                                journal_account_options[
+                                    line2_account_label
+                                ]
+                            )
+
+                            journal_lines = [
+
+                                {
+                                    "journal_entry_id":
+                                        journal_entry_id,
+
+                                    "account_id":
+                                        debit_account_id,
+
+                                    "party_id":
+                                        None,
+
+                                    "debit":
+                                        line1_debit,
+
+                                    "credit":
+                                        0,
+
+                                    "narration":
+                                        journal_narration.strip()
+                                },
+
+                                {
+                                    "journal_entry_id":
+                                        journal_entry_id,
+
+                                    "account_id":
+                                        credit_account_id,
+
+                                    "party_id":
+                                        None,
+
+                                    "debit":
+                                        0,
+
+                                    "credit":
+                                        line2_credit,
+
+                                    "narration":
+                                        journal_narration.strip()
+                                }
+                            ]
+
+                            (
+                                supabase
+                                .table("journal_lines")
+                                .insert(journal_lines)
+                                .execute()
+                            )
+
+                            st.success(
+                                f"Journal Entry "
+                                f"{journal_number} "
+                                f"saved successfully."
+                            )
+
+                            st.rerun()
+
+                        except Exception as e:
+
+                            st.error(
+                                "Unable to save Journal Entry."
+                            )
+
+                            st.code(str(e))
+
+
+            # ========================================================
+            # JOURNAL REGISTER
+            # ========================================================
+
+            st.divider()
+
+            st.subheader("📋 Journal Register")
+
+            try:
+
+                journal_entries_response = (
+                    supabase
+                    .table("journal_entries")
+                    .select("*")
+                    .order("entry_date", desc=True)
+                    .limit(100)
+                    .execute()
+                )
+
+                journal_entries = (
+                    journal_entries_response.data or []
+                )
+
+            except Exception as e:
+
+                journal_entries = []
+
+                st.error(
+                    "Unable to load Journal Register."
+                )
+
+                st.code(str(e))
+
+
+            if journal_entries:
+
+                display_journals = []
+
+                for journal in journal_entries:
+
+                    display_journals.append({
+
+                        "Entry No.":
+                            journal.get("entry_no"),
+
+                        "Date":
+                            journal.get("entry_date"),
+
+                        "Voucher Type":
+                            journal.get("voucher_type"),
+
+                        "Reference Type":
+                            journal.get("reference_type"),
+
+                        "Reference ID":
+                            journal.get("reference_id"),
+
+                        "Narration":
+                            journal.get("narration"),
+
+                        "Entered By":
+                            journal.get("entered_by"),
+
+                        "Created At":
+                            journal.get("created_at")
+                    })
+
+                st.dataframe(
+                    display_journals,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+            else:
+
+                st.info(
+                    "No journal entries recorded yet."
+                )
 
 
 
