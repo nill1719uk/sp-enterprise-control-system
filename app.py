@@ -1373,18 +1373,18 @@ elif page == "Accounts":
     # TAB 1 - CHART OF ACCOUNTS
     # ================================================================
 
-with account_tab1:
+    with account_tab1:
 
-    st.subheader("📚 Chart of Accounts")
+        st.subheader("📚 Chart of Accounts")
 
-    st.caption(
-        "Create and manage the accounting ledger structure "
-        "used throughout the Accounting module."
-    )
+        st.caption(
+            "Create and manage the accounting ledger structure "
+            "used throughout the Accounting module."
+        )
 
-    # ------------------------------------------------------------
-    # LOAD EXISTING ACCOUNTS
-    # ------------------------------------------------------------
+        # ------------------------------------------------------------
+        # LOAD EXISTING ACCOUNTS
+        # ------------------------------------------------------------
 
     try:
 
