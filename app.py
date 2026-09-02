@@ -3569,7 +3569,7 @@ with reg2:
                     and str(a.get("account_type", "")).upper() == "ASSET"
                 }
 
-                                if cash_bank_chart_options:
+                if cash_bank_chart_options:
 
                     cash_bank_chart_label = st.selectbox(
                         "Linked Chart of Accounts Ledger",
