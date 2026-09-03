@@ -1,5 +1,5 @@
 import hashlib
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 import streamlit as st
 from supabase import create_client
 import uuid
@@ -70,6 +70,131 @@ def stock_balance(item_id):
         outgoing_weight,
         incoming_weight - outgoing_weight
     )
+
+
+# ================================================================
+# DELETION AUDIT / RETENTION
+# ================================================================
+
+def cleanup_deletion_audit():
+    """Keep deletion snapshots for 3 days, then remove them."""
+    try:
+        supabase.table("deletion_audit").delete().lt(
+            "expires_at",
+            datetime.now(timezone.utc).isoformat()
+        ).execute()
+    except Exception:
+        pass
+
+
+def audit_delete(table_name, record_id, deleted_by, snapshot):
+    """Delete a record and retain its snapshot for three days."""
+    response = (
+        supabase
+        .table(table_name)
+        .delete()
+        .eq("id", record_id)
+        .execute()
+    )
+
+    if not response.data:
+        raise Exception("Record could not be deleted.")
+
+    now = datetime.now(timezone.utc)
+    supabase.table("deletion_audit").insert({
+        "table_name": table_name,
+        "record_id": str(record_id),
+        "record_snapshot": snapshot,
+        "deleted_by": str(deleted_by),
+        "deleted_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=3)).isoformat()
+    }).execute()
+
+
+def delete_related_then_audit(table_name, record_id, deleted_by, related=None):
+    """Delete a parent and related rows, retaining deletion snapshots."""
+    related = related or []
+
+    parent = (
+        supabase
+        .table(table_name)
+        .select("*")
+        .eq("id", record_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+
+    if not parent:
+        raise Exception("Record was not found.")
+
+    snapshots = [(table_name, parent[0])]
+
+    for rel in related:
+        rel_rows = (
+            supabase
+            .table(rel["table"])
+            .select("*")
+            .eq(rel["column"], record_id)
+            .execute()
+            .data
+            or []
+        )
+        snapshots.extend((rel["table"], row) for row in rel_rows)
+
+        if rel_rows:
+            (
+                supabase
+                .table(rel["table"])
+                .delete()
+                .eq(rel["column"], record_id)
+                .execute()
+            )
+
+    deleted = (
+        supabase
+        .table(table_name)
+        .delete()
+        .eq("id", record_id)
+        .execute()
+    )
+
+    if not deleted.data:
+        raise Exception("Record could not be deleted.")
+
+    now = datetime.now(timezone.utc)
+    audit_rows = [
+        {
+            "table_name": deleted_table,
+            "record_id": str(snapshot.get("id")),
+            "record_snapshot": snapshot,
+            "deleted_by": str(deleted_by),
+            "deleted_at": now.isoformat(),
+            "expires_at": (now + timedelta(days=3)).isoformat()
+        }
+        for deleted_table, snapshot in snapshots
+    ]
+
+    if audit_rows:
+        supabase.table("deletion_audit").insert(audit_rows).execute()
+
+
+def delete_journal_with_lines(journal_id, deleted_by):
+    delete_related_then_audit(
+        "journal_entries",
+        journal_id,
+        deleted_by,
+        related=[
+            {
+                "table": "journal_lines",
+                "column": "journal_entry_id"
+            }
+        ]
+    )
+
+
+cleanup_deletion_audit()
 
 
 # ================================================================
@@ -273,10 +398,45 @@ if page == "Dashboard":
     except Exception:
         c.metric("Stock Movements", "—")
 
-    st.info(
-        "Stock Control is the active build phase. "
-        "Accounts and Documents will be connected later."
+    st.success(
+        "S.P. Enterprise Control System is now in the final integrated build. "
+        "Stock Control, Accounts and Documents are available."
     )
+
+    st.caption(
+        "Sales can post stock movements and double-entry accounting when the "
+        "required ledger accounts are selected. Expense entries post through "
+        "the journal engine."
+    )
+
+    st.divider()
+    st.subheader("🗑️ Recent Deletion Audit")
+
+    try:
+        deletion_rows = (
+            supabase
+            .table("deletion_audit")
+            .select("table_name,record_id,deleted_by,deleted_at,expires_at")
+            .order("deleted_at", desc=True)
+            .limit(50)
+            .execute()
+            .data
+            or []
+        )
+
+        if deletion_rows:
+            st.dataframe(
+                deletion_rows,
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("No deletion records are currently retained.")
+    except Exception:
+        st.info(
+            "Deletion audit is unavailable until the deletion-audit SQL "
+            "table is created in Supabase."
+        )
 
 
 # ---------------------------------------------------------------------
@@ -1002,6 +1162,62 @@ elif page == "Stock Control":
                                 st.error(str(e))
 
 
+            st.divider()
+            with st.expander("🗑️ Delete Stock Transaction"):
+                try:
+                    recent_movements = (
+                        supabase
+                        .table("stock_movements")
+                        .select("*")
+                        .order("movement_date", desc=True)
+                        .limit(200)
+                        .execute()
+                        .data
+                        or []
+                    )
+                except Exception:
+                    recent_movements = []
+
+                if recent_movements:
+                    tab1_delete_options = {
+                        f'{r.get("movement_date")} | {r.get("direction")} | '
+                        f'{r.get("reference_no") or "No Ref"} | {r.get("id")}': r
+                        for r in recent_movements if r.get("id")
+                    }
+                    selected_tab1_delete_label = st.selectbox(
+                        "Select transaction to delete",
+                        list(tab1_delete_options.keys()),
+                        key="delete_stock_transaction_tab1"
+                    )
+                    confirm_tab1_delete = st.checkbox(
+                        "Confirm deletion of this stock transaction.",
+                        key="confirm_delete_stock_transaction_tab1"
+                    )
+                    if st.button(
+                        "🗑️ Delete Stock Transaction",
+                        key="delete_stock_transaction_tab1_button",
+                        use_container_width=True
+                    ):
+                        if not confirm_tab1_delete:
+                            st.error("Please confirm the deletion first.")
+                        else:
+                            selected_tab1 = tab1_delete_options[
+                                selected_tab1_delete_label
+                            ]
+                            try:
+                                audit_delete(
+                                    "stock_movements",
+                                    selected_tab1["id"],
+                                    user.id,
+                                    selected_tab1
+                                )
+                                st.success("Stock transaction deleted.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Unable to delete stock transaction: {e}")
+                else:
+                    st.info("No stock transactions available to delete.")
+
     # -----------------------------------------------------------------
     # TAB 2 - CURRENT STOCK
     # -----------------------------------------------------------------
@@ -1087,6 +1303,50 @@ elif page == "Stock Control":
                             st.error(str(e))
 
 
+        st.divider()
+        st.subheader("🗑️ Delete Stock Item")
+
+        if items:
+            stock_delete_options = {
+                f'{x.get("name", "")} ({x.get("unit", "")})': x
+                for x in items if x.get("id")
+            }
+            selected_stock_delete_label = st.selectbox(
+                "Select stock item to delete",
+                list(stock_delete_options.keys()),
+                key="delete_stock_item"
+            )
+            confirm_stock_delete = st.checkbox(
+                "Delete this stock item and its linked stock movements.",
+                key="confirm_delete_stock_item"
+            )
+            if st.button(
+                "🗑️ Delete Stock Item",
+                key="delete_stock_item_button",
+                use_container_width=True
+            ):
+                if not confirm_stock_delete:
+                    st.error("Please confirm the deletion first.")
+                else:
+                    selected_stock = stock_delete_options[
+                        selected_stock_delete_label
+                    ]
+                    try:
+                        delete_related_then_audit(
+                            "stock_items",
+                            selected_stock["id"],
+                            user.id,
+                            related=[{
+                                "table": "stock_movements",
+                                "column": "item_id"
+                            }]
+                        )
+                        st.success("Stock item and linked movements deleted.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Unable to delete stock item: {e}")
+
+
     # -----------------------------------------------------------------
     # TAB 3 - PARTIES
     # -----------------------------------------------------------------
@@ -1167,6 +1427,50 @@ elif page == "Stock Control":
 
                         except Exception as e:
                             st.error(str(e))
+
+
+        st.divider()
+        st.subheader("🗑️ Delete Company / Party")
+
+        if parties:
+            party_delete_options = {
+                f'{p.get("name", "")} [{p.get("party_type", "")}]': p
+                for p in parties if p.get("id")
+            }
+            selected_party_delete_label = st.selectbox(
+                "Select company / party to delete",
+                list(party_delete_options.keys()),
+                key="delete_party"
+            )
+            confirm_party_delete = st.checkbox(
+                "Delete this party and its linked stock movements.",
+                key="confirm_delete_party"
+            )
+            if st.button(
+                "🗑️ Delete Company / Party",
+                key="delete_party_button",
+                use_container_width=True
+            ):
+                if not confirm_party_delete:
+                    st.error("Please confirm the deletion first.")
+                else:
+                    selected_party = party_delete_options[
+                        selected_party_delete_label
+                    ]
+                    try:
+                        delete_related_then_audit(
+                            "business_parties",
+                            selected_party["id"],
+                            user.id,
+                            related=[{
+                                "table": "stock_movements",
+                                "column": "party_id"
+                            }]
+                        )
+                        st.success("Company / Party deleted.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Unable to delete company / party: {e}")
 
 
     # -----------------------------------------------------------------
@@ -1278,6 +1582,47 @@ elif page == "Stock Control":
             )
 
 
+        st.divider()
+        st.subheader("🗑️ Delete Party Movement")
+
+        if ledger_rows:
+            party_movement_delete_options = {
+                f'{r.get("movement_date")} | {r.get("direction")} | '
+                f'{r.get("reference_no") or "No Ref"} | {r.get("stock_items", {}).get("name", "")}': r
+                for r in ledger_rows if r.get("id")
+            }
+            selected_party_movement_label = st.selectbox(
+                "Select movement to delete",
+                list(party_movement_delete_options.keys()),
+                key="delete_party_movement"
+            )
+            confirm_party_movement_delete = st.checkbox(
+                "Confirm deletion of this party stock movement.",
+                key="confirm_delete_party_movement"
+            )
+            if st.button(
+                "🗑️ Delete Party Movement",
+                key="delete_party_movement_button",
+                use_container_width=True
+            ):
+                if not confirm_party_movement_delete:
+                    st.error("Please confirm the deletion first.")
+                else:
+                    selected_party_movement = party_movement_delete_options[
+                        selected_party_movement_label
+                    ]
+                    try:
+                        audit_delete(
+                            "stock_movements",
+                            selected_party_movement["id"],
+                            user.id,
+                            selected_party_movement
+                        )
+                        st.success("Party movement deleted.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Unable to delete party movement: {e}")
+
     # -----------------------------------------------------------------
     # TAB 5 - MOVEMENT REGISTER
     # -----------------------------------------------------------------
@@ -1342,6 +1687,48 @@ elif page == "Stock Control":
             use_container_width=True,
             hide_index=True
         )
+
+
+        st.divider()
+        st.subheader("🗑️ Delete Stock Movement")
+
+        if rows:
+            movement_delete_options = {
+                f'{r.get("movement_date")} | {r.get("direction")} | '
+                f'{r.get("reference_no") or "No Ref"} | {r.get("id")}': r
+                for r in rows if r.get("id")
+            }
+            selected_movement_label = st.selectbox(
+                "Select movement to delete",
+                list(movement_delete_options.keys()),
+                key="delete_stock_movement"
+            )
+            confirm_movement_delete = st.checkbox(
+                "I understand this will change the stock balance.",
+                key="confirm_delete_stock_movement"
+            )
+            if st.button(
+                "🗑️ Delete Stock Movement",
+                key="delete_stock_movement_button",
+                use_container_width=True
+            ):
+                if not confirm_movement_delete:
+                    st.error("Please confirm the deletion first.")
+                else:
+                    selected_movement = movement_delete_options[
+                        selected_movement_label
+                    ]
+                    try:
+                        audit_delete(
+                            "stock_movements",
+                            selected_movement["id"],
+                            user.id,
+                            selected_movement
+                        )
+                        st.success("Stock movement deleted.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Unable to delete stock movement: {e}")
 
 
 # ---------------------------------------------------------------------
@@ -1970,6 +2357,51 @@ elif page == "Accounts":
                 "No accounts available."
             )
 
+        st.divider()
+        st.subheader("🗑️ Delete Account")
+
+        if accounts:
+            delete_account_options = {
+                f'{a.get("account_code", "")} - {a.get("account_name", "")}': a
+                for a in accounts if a.get("id")
+            }
+            selected_delete_account_label = st.selectbox(
+                "Select account to delete",
+                list(delete_account_options.keys()),
+                key="delete_coa_account"
+            )
+            confirm_account_delete = st.checkbox(
+                "Confirm permanent deletion of this ledger account.",
+                key="confirm_delete_coa_account"
+            )
+            if st.button(
+                "🗑️ Delete Account",
+                key="delete_coa_account_button",
+                use_container_width=True
+            ):
+                if not confirm_account_delete:
+                    st.error("Please confirm the deletion first.")
+                else:
+                    selected_account_delete = delete_account_options[
+                        selected_delete_account_label
+                    ]
+                    try:
+                        audit_delete(
+                            "chart_of_accounts",
+                            selected_account_delete["id"],
+                            user.id,
+                            selected_account_delete
+                        )
+                        st.success("Account deleted.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(
+                            "Unable to delete account. If it is already used "
+                            "in transactions, deactivate it instead. Details: "
+                            + str(e)
+                        )
+
+
     # ================================================================
     # TAB 2 - SALES REGISTER
     # ================================================================
@@ -2129,6 +2561,112 @@ elif page == "Accounts":
         st.divider()
 
         # ------------------------------------------------------------
+        # SALES ACCOUNTING CONFIGURATION
+        # ------------------------------------------------------------
+
+        try:
+            sales_chart_accounts = (
+                supabase
+                .table("chart_of_accounts")
+                .select("id, account_code, account_name, account_type")
+                .eq("active", True)
+                .order("account_code")
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            sales_chart_accounts = []
+
+        sales_income_options = {
+            f'{a.get("account_code", "")} - {a.get("account_name", "")}': a.get("id")
+            for a in sales_chart_accounts
+            if a.get("id") and str(a.get("account_type", "")).upper() == "INCOME"
+        }
+
+        sales_asset_options = {
+            f'{a.get("account_code", "")} - {a.get("account_name", "")}': a.get("id")
+            for a in sales_chart_accounts
+            if a.get("id") and str(a.get("account_type", "")).upper() == "ASSET"
+        }
+
+        sales_gst_options = {
+            f'{a.get("account_code", "")} - {a.get("account_name", "")}': a.get("id")
+            for a in sales_chart_accounts
+            if a.get("id") and str(a.get("account_type", "")).upper() == "LIABILITY"
+        }
+
+        # ------------------------------------------------------------
+        st.subheader("🗑️ Delete Sales Invoice")
+
+        if sales_invoices:
+            sales_delete_options = {
+                f'{x.get("invoice_number", "")} | {x.get("customer_name", "")} | '
+                f'₹{float(x.get("total_amount") or 0):,.2f}': x
+                for x in sales_invoices if x.get("id")
+            }
+
+            selected_sales_delete_label = st.selectbox(
+                "Select invoice to delete",
+                list(sales_delete_options.keys()),
+                key="delete_sales_invoice"
+            )
+
+            confirm_sales_delete = st.checkbox(
+                "Delete the invoice, line items, linked stock movement, "
+                "and linked journal where applicable.",
+                key="confirm_delete_sales_invoice"
+            )
+
+            if st.button(
+                "🗑️ Delete Sales Invoice",
+                key="delete_sales_invoice_button",
+                use_container_width=True
+            ):
+                if not confirm_sales_delete:
+                    st.error("Please confirm the deletion first.")
+                else:
+                    selected_sales = sales_delete_options[
+                        selected_sales_delete_label
+                    ]
+                    try:
+                        journal_ref = selected_sales.get("journal_entry_id")
+                        if journal_ref:
+                            delete_journal_with_lines(journal_ref, user.id)
+
+                        stock_refs = (
+                            supabase
+                            .table("stock_movements")
+                            .select("*")
+                            .eq("reference_no", selected_sales.get("invoice_number"))
+                            .eq("direction", "OUT")
+                            .eq("notes", f"Sales Invoice {selected_sales.get('invoice_number')}")
+                            .execute()
+                            .data
+                            or []
+                        )
+                        for stock_ref in stock_refs:
+                            audit_delete(
+                                "stock_movements",
+                                stock_ref["id"],
+                                user.id,
+                                stock_ref
+                            )
+
+                        delete_related_then_audit(
+                            "sales_invoices",
+                            selected_sales["id"],
+                            user.id,
+                            related=[{
+                                "table": "sales_invoice_items",
+                                "column": "sales_invoice_id"
+                            }]
+                        )
+                        st.success("Sales invoice deleted.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Unable to delete sales invoice: {e}")
+
         # CREATE SALES INVOICE
         # ------------------------------------------------------------
 
@@ -2313,6 +2851,18 @@ elif page == "Accounts":
                     key="sales_discount"
                 )
 
+                sales_weight_kg = st.number_input(
+                    "Dispatch Weight (KG)",
+                    min_value=0.0,
+                    step=0.01,
+                    value=(
+                        float(sales_quantity)
+                        if str(selected_item.get("unit", "")).upper() == "KG"
+                        else 0.0
+                    ),
+                    key="sales_weight_kg"
+                )
+
                 # ----------------------------------------------------
                 # GST
                 # ----------------------------------------------------
@@ -2336,6 +2886,100 @@ elif page == "Accounts":
                     ],
                     key="sales_tax_type"
                 )
+
+                # ----------------------------------------------------
+                # ACCOUNTING POSTING
+                # ----------------------------------------------------
+
+                st.divider()
+                st.subheader("🔗 Accounting Posting")
+
+                if not sales_income_options or not sales_asset_options:
+                    st.warning(
+                        "Create at least one active INCOME ledger and one active "
+                        "ASSET ledger in Chart of Accounts to post this sale."
+                    )
+                    sales_revenue_account_id = None
+                    sales_receivable_account_id = None
+                    sales_settlement_account_id = None
+                    sales_cgst_account_id = None
+                    sales_sgst_account_id = None
+                    sales_igst_account_id = None
+                else:
+                    ac1, ac2 = st.columns(2)
+
+                    sales_revenue_label = ac1.selectbox(
+                        "Sales Revenue Account",
+                        list(sales_income_options.keys()),
+                        key="sales_revenue_account"
+                    )
+
+                    sales_revenue_account_id = sales_income_options[
+                        sales_revenue_label
+                    ]
+
+                    sales_receivable_label = ac2.selectbox(
+                        "Customer Receivable Account",
+                        list(sales_asset_options.keys()),
+                        key="sales_receivable_account"
+                    )
+
+                    sales_receivable_account_id = sales_asset_options[
+                        sales_receivable_label
+                    ]
+
+                    sales_settlement_label = st.selectbox(
+                        "Cash / Bank Settlement Account",
+                        list(sales_asset_options.keys()),
+                        key="sales_settlement_account"
+                    )
+
+                    sales_settlement_account_id = sales_asset_options[
+                        sales_settlement_label
+                    ]
+
+                    sales_cgst_account_id = None
+                    sales_sgst_account_id = None
+                    sales_igst_account_id = None
+
+                    if tax_type == "CGST + SGST" and gst_rate > 0:
+                        if not sales_gst_options:
+                            st.warning(
+                                "No LIABILITY ledger is available for output GST."
+                            )
+                        else:
+                            g1, g2 = st.columns(2)
+                            sales_cgst_label = g1.selectbox(
+                                "Output CGST Account",
+                                list(sales_gst_options.keys()),
+                                key="sales_cgst_account"
+                            )
+                            sales_sgst_label = g2.selectbox(
+                                "Output SGST Account",
+                                list(sales_gst_options.keys()),
+                                key="sales_sgst_account"
+                            )
+                            sales_cgst_account_id = sales_gst_options[
+                                sales_cgst_label
+                            ]
+                            sales_sgst_account_id = sales_gst_options[
+                                sales_sgst_label
+                            ]
+
+                    elif tax_type == "IGST" and gst_rate > 0:
+                        if not sales_gst_options:
+                            st.warning(
+                                "No LIABILITY ledger is available for output GST."
+                            )
+                        else:
+                            sales_igst_label = st.selectbox(
+                                "Output IGST Account",
+                                list(sales_gst_options.keys()),
+                                key="sales_igst_account"
+                            )
+                            sales_igst_account_id = sales_gst_options[
+                                sales_igst_label
+                            ]
 
                 # ----------------------------------------------------
                 # CALCULATIONS
@@ -2500,7 +3144,44 @@ elif page == "Accounts":
 
                     else:
 
-                        invoice_data = {
+                        latest_stock = stock_balance(selected_item["id"])
+                        latest_available_qty = latest_stock[2]
+                        latest_available_weight = latest_stock[5]
+
+                        if sales_quantity > latest_available_qty:
+                            st.error(
+                                f"Sale blocked: only {latest_available_qty:g} "
+                                f"{selected_item['unit']} is available."
+                            )
+                        elif sales_weight_kg <= 0:
+                            st.error(
+                                "Dispatch Weight (KG) is required to connect the sale to stock."
+                            )
+                        elif sales_weight_kg > latest_available_weight:
+                            st.error(
+                                f"Sale blocked: only {latest_available_weight:,.2f} KG "
+                                "is available."
+                            )
+                        elif sales_revenue_account_id is None or sales_receivable_account_id is None:
+                            st.error(
+                                "Select the required Sales Revenue and Asset accounts "
+                                "before saving."
+                            )
+                        elif (
+                            tax_type == "CGST + SGST"
+                            and gst_rate > 0
+                            and (sales_cgst_account_id is None or sales_sgst_account_id is None)
+                        ):
+                            st.error("Select Output CGST and Output SGST accounts.")
+                        elif (
+                            tax_type == "IGST"
+                            and gst_rate > 0
+                            and sales_igst_account_id is None
+                        ):
+                            st.error("Select an Output IGST account.")
+                        else:
+
+                            invoice_data = {
 
                             "invoice_number":
                                 invoice_number.strip(),
@@ -2878,147 +3559,187 @@ elif page == "Accounts":
 
 
             # ============================================================
-            # EXPENSES
-            # ============================================================
+            st.subheader("🗑️ Delete Purchase")
 
-            with reg2:
+            if purchases:
+                purchase_delete_options = {
+                    f'{x.get("bill_no", "")} | {x.get("supplier", "")} | '
+                    f'₹{float(x.get("bill_total") or 0):,.2f}': x
+                    for x in purchases if x.get("id")
+                }
+                selected_purchase_delete_label = st.selectbox(
+                    "Select purchase to delete",
+                    list(purchase_delete_options.keys()),
+                    key="delete_purchase"
+                )
+                confirm_purchase_delete = st.checkbox(
+                    "Confirm deletion of this purchase record.",
+                    key="confirm_delete_purchase"
+                )
+                if st.button(
+                    "🗑️ Delete Purchase",
+                    key="delete_purchase_button",
+                    use_container_width=True
+                ):
+                    if not confirm_purchase_delete:
+                        st.error("Please confirm the deletion first.")
+                    else:
+                        selected_purchase = purchase_delete_options[
+                            selected_purchase_delete_label
+                        ]
+                        try:
+                            audit_delete(
+                                "accounts_purchases",
+                                selected_purchase["id"],
+                                user.id,
+                                selected_purchase
+                            )
+                            st.success("Purchase deleted.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Unable to delete purchase: {e}")
 
-                st.subheader("💸 Expense Register")
+        # EXPENSES
+        # ============================================================
 
-                if not account_options:
+        with reg2:
 
-                    st.warning(
-                        "No active Chart of Accounts found. "
-                        "Create accounts first."
+            st.subheader("💸 Expense Register")
+
+            if not account_options:
+
+                st.warning(
+                    "No active Chart of Accounts found. "
+                    "Create accounts first."
+                )
+
+            else:
+
+                with st.form(
+                    "expense_register_form",
+                    clear_on_submit=True
+                ):
+
+                    # --------------------------------------------------------
+                    # BASIC EXPENSE DETAILS
+                    # --------------------------------------------------------
+                     
+                    e1, e2 = st.columns(2)
+
+                    expense_date = e1.date_input(
+                        "Expense Date",
+                        key="expense_date"
                     )
 
-                else:
+                    expense_account_label = e2.selectbox(
+                        "Expense Account",
+                        list(account_options.keys()),
+                        key="expense_account"
+                    )
 
-                    with st.form(
-                        "expense_register_form",
-                        clear_on_submit=True
-                    ):
+                    expense_account_id = account_options[
+                        expense_account_label
+                    ]
 
-                        # --------------------------------------------------------
-                        # BASIC EXPENSE DETAILS
-                        # --------------------------------------------------------
-                         
-                        e1, e2 = st.columns(2)
+                    # --------------------------------------------------------
+                    # DESCRIPTION / PAYMENT MODE
+                    # --------------------------------------------------------
 
-                        expense_date = e1.date_input(
-                            "Expense Date",
-                            key="expense_date"
+                    e3, e4 = st.columns(2)
+
+                    description = e3.text_input(
+                        "Description",
+                        key="expense_description"
+                    )
+
+                    payment_mode = e4.selectbox(
+                        "Payment Mode",
+                        [
+                            "CASH",
+                            "BANK",
+                            "UPI",
+                            "CHEQUE",
+                            "CREDIT",
+                            "OTHER"
+                        ],
+                        key="expense_payment_mode"
+                    )
+
+                    # --------------------------------------------------------
+                    # PAYMENT / CREDIT ACCOUNT
+                    # --------------------------------------------------------
+
+                    payment_account_options = {
+                        label: account_id
+                        for label, account_id in account_options.items()
+                    }
+
+                    if payment_account_options:
+
+                        payment_account_label = st.selectbox(
+                            "Paid From / Payable Account",
+                            list(payment_account_options.keys()),
+                            key="expense_payment_account"
                         )
 
-                        expense_account_label = e2.selectbox(
-                            "Expense Account",
-                            list(account_options.keys()),
-                            key="expense_account"
-                        )
-
-                        expense_account_id = account_options[
-                            expense_account_label
+                        payment_account_id = payment_account_options[
+                            payment_account_label
                         ]
 
-                        # --------------------------------------------------------
-                        # DESCRIPTION / PAYMENT MODE
-                        # --------------------------------------------------------
+                    else:
 
-                        e3, e4 = st.columns(2)
+                        payment_account_id = None
 
-                        description = e3.text_input(
-                            "Description",
-                            key="expense_description"
+                        st.warning(
+                            "No Chart of Accounts ledger is available."
                         )
 
-                        payment_mode = e4.selectbox(
-                            "Payment Mode",
-                            [
-                                "CASH",
-                                "BANK",
-                                "UPI",
-                                "CHEQUE",
-                                "CREDIT",
-                                "OTHER"
-                            ],
-                            key="expense_payment_mode"
-                        )
+                    # --------------------------------------------------------
+                    # AMOUNTS
+                    # --------------------------------------------------------
 
-                        # --------------------------------------------------------
-                        # PAYMENT / CREDIT ACCOUNT
-                        # --------------------------------------------------------
+                    e5, e6, e7 = st.columns(3)
 
-                        payment_account_options = {
-                            label: account_id
-                            for label, account_id in account_options.items()
-                        }
+                    taxable_value = e5.number_input(
+                        "Taxable Value",
+                        min_value=0.0,
+                        step=0.01,
+                        key="expense_taxable"
+                    )
 
-                        if payment_account_options:
+                    gst_amount = e6.number_input(
+                        "GST Amount",
+                        min_value=0.0,
+                        step=0.01,
+                        key="expense_gst"
+                    )
 
-                            payment_account_label = st.selectbox(
-                                "Paid From / Payable Account",
-                                list(payment_account_options.keys()),
-                                key="expense_payment_account"
-                            )
+                    total_amount = e7.number_input(
+                        "Total Amount",
+                        min_value=0.0,
+                        step=0.01,
+                        key="expense_total"
+                    )
 
-                            payment_account_id = payment_account_options[
-                                payment_account_label
-                            ]
+                    # --------------------------------------------------------
+                    # REFERENCE
+                    # --------------------------------------------------------
 
-                        else:
+                    reference_no = st.text_input(
+                        "Reference No.",
+                        key="expense_reference"
+                    )
 
-                            payment_account_id = None
+                    # --------------------------------------------------------
+                    # SAVE BUTTON
+                    # --------------------------------------------------------
 
-                            st.warning(
-                                "No Chart of Accounts ledger is available."
-                            )
+                    save_expense = st.form_submit_button(
+                        "💾 Save Expense",
+                        use_container_width=True
+                    )
 
-                        # --------------------------------------------------------
-                        # AMOUNTS
-                        # --------------------------------------------------------
-
-                        e5, e6, e7 = st.columns(3)
-
-                        taxable_value = e5.number_input(
-                            "Taxable Value",
-                            min_value=0.0,
-                            step=0.01,
-                            key="expense_taxable"
-                        )
-
-                        gst_amount = e6.number_input(
-                            "GST Amount",
-                            min_value=0.0,
-                            step=0.01,
-                            key="expense_gst"
-                        )
-
-                        total_amount = e7.number_input(
-                            "Total Amount",
-                            min_value=0.0,
-                            step=0.01,
-                            key="expense_total"
-                        )
-
-                        # --------------------------------------------------------
-                        # REFERENCE
-                        # --------------------------------------------------------
-
-                        reference_no = st.text_input(
-                            "Reference No.",
-                            key="expense_reference"
-                        )
-
-                        # --------------------------------------------------------
-                        # SAVE BUTTON
-                        # --------------------------------------------------------
-
-                        save_expense = st.form_submit_button(
-                            "💾 Save Expense",
-                            use_container_width=True
-                        )
-
-        # ============================================================
+    # ============================================================
         # SAVE EXPENSE + POST JOURNAL
         # ============================================================
 
@@ -3168,46 +3889,97 @@ elif page == "Accounts":
                     st.code(str(e))
 
         # ============================================================
-        # EXPENSE REGISTER
-        # ============================================================
+            # EXPENSE REGISTER
+            # ============================================================
 
-        st.divider()
+            st.divider()
 
-        try:
+            try:
 
-            expenses = (
-                supabase
-                .table("accounts_expenses")
-                .select("*")
-                .order("expense_date", desc=True)
-                .limit(100)
-                .execute()
-                .data
-                or []
-            )
+                expenses = (
+                    supabase
+                    .table("accounts_expenses")
+                    .select("*")
+                    .order("expense_date", desc=True)
+                    .limit(100)
+                    .execute()
+                    .data
+                    or []
+                )
+
+                if expenses:
+
+                    st.dataframe(
+                        expenses,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                else:
+
+                    st.info(
+                        "No expense records yet."
+                    )
+
+            except Exception as e:
+
+                st.error(
+                    f"Unable to load expenses: {e}"
+                )
+
+
+            # ============================================================
+            st.subheader("🗑️ Delete Expense")
 
             if expenses:
-
-                st.dataframe(
-                    expenses,
-                    use_container_width=True,
-                    hide_index=True
+                expense_delete_options = {
+                    f'{x.get("expense_date")} | {x.get("description", "")} | '
+                    f'₹{float(x.get("total_amount") or 0):,.2f}': x
+                    for x in expenses if x.get("id")
+                }
+                selected_expense_delete_label = st.selectbox(
+                    "Select expense to delete",
+                    list(expense_delete_options.keys()),
+                    key="delete_expense"
                 )
-
-            else:
-
-                st.info(
-                    "No expense records yet."
+                confirm_expense_delete = st.checkbox(
+                    "Confirm deletion of this expense and its linked journal.",
+                    key="confirm_delete_expense"
                 )
+                if st.button(
+                    "🗑️ Delete Expense",
+                    key="delete_expense_button",
+                    use_container_width=True
+                ):
+                    if not confirm_expense_delete:
+                        st.error("Please confirm the deletion first.")
+                    else:
+                        selected_expense = expense_delete_options[
+                            selected_expense_delete_label
+                        ]
+                        try:
+                            linked_journals = (
+                                supabase
+                                .table("journal_entries")
+                                .select("id")
+                                .eq("reference_id", selected_expense["id"])
+                                .execute()
+                                .data
+                                or []
+                            )
+                            for journal in linked_journals:
+                                delete_journal_with_lines(journal["id"], user.id)
+                            audit_delete(
+                                "accounts_expenses",
+                                selected_expense["id"],
+                                user.id,
+                                selected_expense
+                            )
+                            st.success("Expense and linked journal deleted.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Unable to delete expense: {e}")
 
-        except Exception as e:
-
-            st.error(
-                f"Unable to load expenses: {e}"
-            )
-
-
-        # ============================================================
         # RECEIPTS
         # ============================================================
 
@@ -3372,6 +4144,47 @@ elif page == "Accounts":
                 st.error(
                     f"Unable to load receipts: {e}"
                 )
+
+
+            st.subheader("🗑️ Delete Receipt")
+
+            if receipts:
+                receipt_delete_options = {
+                    f'{x.get("receipt_no", "")} | {x.get("receipt_date")} | '
+                    f'₹{float(x.get("amount") or 0):,.2f}': x
+                    for x in receipts if x.get("id")
+                }
+                selected_receipt_delete_label = st.selectbox(
+                    "Select receipt to delete",
+                    list(receipt_delete_options.keys()),
+                    key="delete_receipt"
+                )
+                confirm_receipt_delete = st.checkbox(
+                    "Confirm deletion of this receipt record.",
+                    key="confirm_delete_receipt"
+                )
+                if st.button(
+                    "🗑️ Delete Receipt",
+                    key="delete_receipt_button",
+                    use_container_width=True
+                ):
+                    if not confirm_receipt_delete:
+                        st.error("Please confirm the deletion first.")
+                    else:
+                        selected_receipt = receipt_delete_options[
+                            selected_receipt_delete_label
+                        ]
+                        try:
+                            audit_delete(
+                                "accounts_receipts",
+                                selected_receipt["id"],
+                                user.id,
+                                selected_receipt
+                            )
+                            st.success("Receipt deleted.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Unable to delete receipt: {e}")
 
 
         # ============================================================
@@ -3539,6 +4352,47 @@ elif page == "Accounts":
                 st.error(
                     f"Unable to load payments: {e}"
                 )
+
+
+            st.subheader("🗑️ Delete Payment")
+
+            if payments:
+                payment_delete_options = {
+                    f'{x.get("payment_no", "")} | {x.get("payment_date")} | '
+                    f'₹{float(x.get("amount") or 0):,.2f}': x
+                    for x in payments if x.get("id")
+                }
+                selected_payment_delete_label = st.selectbox(
+                    "Select payment to delete",
+                    list(payment_delete_options.keys()),
+                    key="delete_payment"
+                )
+                confirm_payment_delete = st.checkbox(
+                    "Confirm deletion of this payment record.",
+                    key="confirm_delete_payment"
+                )
+                if st.button(
+                    "🗑️ Delete Payment",
+                    key="delete_payment_button",
+                    use_container_width=True
+                ):
+                    if not confirm_payment_delete:
+                        st.error("Please confirm the deletion first.")
+                    else:
+                        selected_payment = payment_delete_options[
+                            selected_payment_delete_label
+                        ]
+                        try:
+                            audit_delete(
+                                "accounts_payments",
+                                selected_payment["id"],
+                                user.id,
+                                selected_payment
+                            )
+                            st.success("Payment deleted.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Unable to delete payment: {e}")
 
 
         # ============================================================
@@ -3748,6 +4602,46 @@ elif page == "Accounts":
                     f"Unable to load Cash / Bank accounts: {e}"
                 )
 
+
+
+            st.subheader("🗑️ Delete Cash / Bank Account")
+
+            if bank_accounts:
+                bank_delete_options = {
+                    f'{x.get("account_name", "")} ({x.get("account_type", "")})': x
+                    for x in bank_accounts if x.get("id")
+                }
+                selected_bank_delete_label = st.selectbox(
+                    "Select Cash / Bank account to delete",
+                    list(bank_delete_options.keys()),
+                    key="delete_cash_bank"
+                )
+                confirm_bank_delete = st.checkbox(
+                    "Confirm deletion of this Cash / Bank account.",
+                    key="confirm_delete_cash_bank"
+                )
+                if st.button(
+                    "🗑️ Delete Cash / Bank Account",
+                    key="delete_cash_bank_button",
+                    use_container_width=True
+                ):
+                    if not confirm_bank_delete:
+                        st.error("Please confirm the deletion first.")
+                    else:
+                        selected_bank = bank_delete_options[
+                            selected_bank_delete_label
+                        ]
+                        try:
+                            audit_delete(
+                                "cash_bank_accounts",
+                                selected_bank["id"],
+                                user.id,
+                                selected_bank
+                            )
+                            st.success("Cash / Bank account deleted.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Unable to delete Cash / Bank account: {e}")
 
 
     # ================================================================
@@ -4265,6 +5159,47 @@ elif page == "Accounts":
                     hide_index=True
                 )
 
+                st.subheader("🗑️ Delete Journal Entry")
+
+                journal_delete_options = {
+                    f'{j.get("entry_no", "")} | {j.get("entry_date")} | '
+                    f'{j.get("narration", "")}': j
+                    for j in journal_entries if j.get("id")
+                }
+
+                selected_journal_delete_label = st.selectbox(
+                    "Select journal entry to delete",
+                    list(journal_delete_options.keys()),
+                    key="delete_journal_entry"
+                )
+
+                confirm_journal_delete = st.checkbox(
+                    "Confirm deletion of this journal entry and its lines.",
+                    key="confirm_delete_journal_entry"
+                )
+
+                if st.button(
+                    "🗑️ Delete Journal Entry",
+                    key="delete_journal_entry_button",
+                    use_container_width=True
+                ):
+                    if not confirm_journal_delete:
+                        st.error("Please confirm the deletion first.")
+                    else:
+                        selected_journal = journal_delete_options[
+                            selected_journal_delete_label
+                        ]
+                        try:
+                            delete_journal_with_lines(
+                                selected_journal["id"],
+                                user.id
+                            )
+                            st.success("Journal entry and lines deleted.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Unable to delete journal entry: {e}")
+
+
             else:
 
                 st.info(
@@ -4278,15 +5213,226 @@ elif page == "Accounts":
 # DOCUMENTS
 # ---------------------------------------------------------------------
 
-if page == "Documents":
+elif page == "Documents":
 
     st.title("📁 Document Register")
 
     st.write(
-        "Index GST, ITR, trade licence, professional tax, lease, "
-        "electricity, bank, loan and other business documents."
+        "Maintain a central register for GST, ITR, trade licence, "
+        "professional tax, lease, electricity, bank, loan, insurance "
+        "and other business documents."
     )
 
     st.caption(
-        "Sensitive documents should be restricted by user role."
+        "The register stores document metadata and an optional secure "
+        "document link / storage path."
     )
+
+    try:
+        documents = (
+            supabase
+            .table("business_documents")
+            .select("*")
+            .order("expiry_date", desc=False)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        documents = []
+        st.warning(
+            "Document Register is not configured yet. Run the supplied "
+            "Document Register SQL in Supabase first."
+        )
+
+    today = date.today()
+    expired = sum(
+        1 for d in documents
+        if d.get("expiry_date")
+        and str(d.get("expiry_date")) < today.isoformat()
+    )
+    due_30 = sum(
+        1 for d in documents
+        if d.get("expiry_date")
+        and today.isoformat() <= str(d.get("expiry_date"))
+        <= (today + timedelta(days=30)).isoformat()
+    )
+
+    d1, d2, d3 = st.columns(3)
+    d1.metric("Total Documents", len(documents))
+    d2.metric("Expired", expired)
+    d3.metric("Due Within 30 Days", due_30)
+
+    st.divider()
+
+    with st.expander("➕ Add Business Document", expanded=True):
+
+        with st.form("document_register_form", clear_on_submit=True):
+
+            d1, d2, d3 = st.columns(3)
+
+            document_type = d1.selectbox(
+                "Document Type",
+                [
+                    "GST",
+                    "ITR",
+                    "TRADE_LICENCE",
+                    "PROFESSIONAL_TAX",
+                    "LEASE",
+                    "ELECTRICITY",
+                    "BANK",
+                    "LOAN",
+                    "INSURANCE",
+                    "OTHER"
+                ],
+                key="document_type"
+            )
+
+            document_name = d2.text_input(
+                "Document Name",
+                placeholder="Example: GST Registration Certificate",
+                key="document_name"
+            )
+
+            reference_no = d3.text_input(
+                "Reference / Document No.",
+                key="document_reference"
+            )
+
+            d4, d5, d6 = st.columns(3)
+
+            issue_date = d4.date_input(
+                "Issue Date",
+                value=today,
+                key="document_issue_date"
+            )
+
+            expiry_date = d5.date_input(
+                "Expiry / Renewal Date",
+                value=today,
+                key="document_expiry_date"
+            )
+
+            status = d6.selectbox(
+                "Status",
+                ["ACTIVE", "EXPIRED", "PENDING", "RENEWED", "ARCHIVED"],
+                key="document_status"
+            )
+
+            document_url = st.text_input(
+                "Document Link / Storage Path (optional)",
+                placeholder="Paste the secure document URL or storage path",
+                key="document_url"
+            )
+
+            notes = st.text_area(
+                "Notes",
+                key="document_notes"
+            )
+
+            save_document = st.form_submit_button(
+                "💾 Save Document",
+                use_container_width=True
+            )
+
+        if save_document:
+            if not document_name.strip():
+                st.error("Document name is required.")
+            else:
+                try:
+                    supabase.table("business_documents").insert({
+                        "document_type": document_type,
+                        "document_name": document_name.strip(),
+                        "reference_no": reference_no.strip() or None,
+                        "issue_date": issue_date.isoformat(),
+                        "expiry_date": expiry_date.isoformat(),
+                        "status": status,
+                        "document_url": document_url.strip() or None,
+                        "notes": notes.strip() or None,
+                        "entered_by": str(user.id)
+                    }).execute()
+                    st.success("Document registered successfully.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Unable to save document: {e}")
+
+    st.divider()
+    st.subheader("📋 Document Register")
+
+    if documents:
+        display_documents = []
+        for document in documents:
+            expiry = document.get("expiry_date")
+            if expiry and str(expiry) < today.isoformat():
+                display_status = "🔴 EXPIRED"
+            elif (
+                expiry
+                and str(expiry)
+                <= (today + timedelta(days=30)).isoformat()
+            ):
+                display_status = "🟠 DUE SOON"
+            else:
+                display_status = document.get("status") or "ACTIVE"
+
+            display_documents.append({
+                "Document Type": document.get("document_type"),
+                "Document Name": document.get("document_name"),
+                "Reference No.": document.get("reference_no"),
+                "Issue Date": document.get("issue_date"),
+                "Expiry / Renewal": expiry,
+                "Status": display_status,
+                "Document Link": document.get("document_url"),
+                "Notes": document.get("notes")
+            })
+
+        st.dataframe(
+            display_documents,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.subheader("🗑️ Delete Document")
+
+        document_delete_options = {
+            f'{d.get("document_name", "")} | {d.get("document_type", "")} | '
+            f'{d.get("reference_no") or "No Ref"}': d
+            for d in documents if d.get("id")
+        }
+
+        selected_document_delete_label = st.selectbox(
+            "Select document to delete",
+            list(document_delete_options.keys()),
+            key="delete_document"
+        )
+
+        confirm_document_delete = st.checkbox(
+            "Confirm deletion of this document record.",
+            key="confirm_delete_document"
+        )
+
+        if st.button(
+            "🗑️ Delete Document",
+            key="delete_document_button",
+            use_container_width=True
+        ):
+            if not confirm_document_delete:
+                st.error("Please confirm the deletion first.")
+            else:
+                selected_document = document_delete_options[
+                    selected_document_delete_label
+                ]
+                try:
+                    audit_delete(
+                        "business_documents",
+                        selected_document["id"],
+                        user.id,
+                        selected_document
+                    )
+                    st.success("Document record deleted.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Unable to delete document: {e}")
+
+    else:
+        st.info("No business documents registered yet.")
+
