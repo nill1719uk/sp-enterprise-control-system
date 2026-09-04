@@ -1,5 +1,5 @@
 import hashlib
-from datetime import date
+from datetime import date, datetime, timezone
 import streamlit as st
 from supabase import create_client
 import uuid
@@ -217,8 +217,19 @@ def find_account_id(accounts, keywords, account_types=None):
     return None
 
 
+def cleanup_deletion_audit():
+    """Remove audit snapshots after their configured 3-day retention window."""
+    try:
+        supabase.table("deletion_audit").delete().lt(
+            "expires_at", datetime.now(timezone.utc).isoformat()
+        ).execute()
+    except Exception:
+        pass
+
+
 def audit_delete(table_name, record):
-    """Keep a lightweight deletion snapshot for the 3-day audit window."""
+    """Keep a deletion snapshot for at least the configured 3-day window."""
+    cleanup_deletion_audit()
     try:
         supabase.table("deletion_audit").insert({
             "table_name": table_name,
@@ -227,11 +238,12 @@ def audit_delete(table_name, record):
             "deleted_by": str(user.id)
         }).execute()
     except Exception:
-        # Deletion should never be blocked by an audit-write failure.
+        # Deletion itself is not blocked if audit logging fails.
         pass
 
 
 def delete_record(table_name, record_id):
+    """Delete one record after taking an audit snapshot."""
     record_response = (
         supabase.table(table_name)
         .select("*")
@@ -240,9 +252,155 @@ def delete_record(table_name, record_id):
         .execute()
     )
     record = (record_response.data or [None])[0]
-    if record:
-        audit_delete(table_name, record)
+    if not record:
+        raise Exception("Record not found.")
+    audit_delete(table_name, record)
     supabase.table(table_name).delete().eq("id", record_id).execute()
+
+
+def delete_journal_reference(reference_id):
+    """Delete journal lines and their journal header for an operational record."""
+    try:
+        journals = (
+            supabase.table("journal_entries")
+            .select("*")
+            .eq("reference_id", str(reference_id))
+            .execute().data or []
+        )
+    except Exception:
+        journals = []
+
+    for journal in journals:
+        journal_id = journal.get("id")
+        if journal_id:
+            lines = (
+                supabase.table("journal_lines")
+                .select("*")
+                .eq("journal_entry_id", journal_id)
+                .execute().data or []
+            )
+            for line in lines:
+                audit_delete("journal_lines", line)
+            if lines:
+                supabase.table("journal_lines").delete().eq(
+                    "journal_entry_id", journal_id
+                ).execute()
+            audit_delete("journal_entries", journal)
+            supabase.table("journal_entries").delete().eq(
+                "id", journal_id
+            ).execute()
+
+
+def delete_transaction(table_name, record_id):
+    """Delete a test transaction and its directly generated accounting/stock children."""
+    record = (
+        supabase.table(table_name).select("*").eq("id", record_id).limit(1).execute().data
+        or []
+    )
+    record = record[0] if record else None
+    if not record:
+        raise Exception("Record not found.")
+
+    if table_name == "accounts_purchases":
+        delete_journal_reference(record_id)
+        linked = supabase.table("stock_movements").select("*").eq(
+            "purchase_id", record_id
+        ).execute().data or []
+        for movement in linked:
+            audit_delete("stock_movements", movement)
+        if linked:
+            supabase.table("stock_movements").delete().eq(
+                "purchase_id", record_id
+            ).execute()
+
+    elif table_name == "accounts_expenses":
+        delete_journal_reference(record_id)
+
+    elif table_name == "accounts_receipts":
+        delete_journal_reference(record_id)
+
+    elif table_name == "accounts_payments":
+        delete_journal_reference(record_id)
+
+    elif table_name == "sales_invoices":
+        delete_journal_reference(record_id)
+        items = supabase.table("sales_invoice_items").select("*").eq(
+            "sales_invoice_id", record_id
+        ).execute().data or []
+        for item in items:
+            audit_delete("sales_invoice_items", item)
+        if items:
+            supabase.table("sales_invoice_items").delete().eq(
+                "sales_invoice_id", record_id
+            ).execute()
+        invoice_no = record.get("invoice_number")
+        if invoice_no:
+            linked = supabase.table("stock_movements").select("*").eq(
+                "direction", "OUT"
+            ).eq("reference_no", invoice_no).execute().data or []
+            for movement in linked:
+                audit_delete("stock_movements", movement)
+            for movement in linked:
+                supabase.table("stock_movements").delete().eq(
+                    "id", movement["id"]
+                ).execute()
+
+    elif table_name == "journal_entries":
+        lines = supabase.table("journal_lines").select("*").eq(
+            "journal_entry_id", record_id
+        ).execute().data or []
+        for line in lines:
+            audit_delete("journal_lines", line)
+        if lines:
+            supabase.table("journal_lines").delete().eq(
+                "journal_entry_id", record_id
+            ).execute()
+
+    elif table_name == "stock_movements":
+        purchase_id = record.get("purchase_id")
+        if purchase_id:
+            purchase_rows = supabase.table("accounts_purchases").select("*").eq(
+                "id", purchase_id
+            ).execute().data or []
+            if purchase_rows:
+                delete_transaction("accounts_purchases", purchase_id)
+        elif record.get("direction") == "OUT" and record.get("reference_no"):
+            # Sales-generated dispatches are identified by their invoice reference.
+            sales_rows = supabase.table("sales_invoices").select("*").eq(
+                "invoice_number", record.get("reference_no")
+            ).execute().data or []
+            for sale in sales_rows:
+                delete_transaction("sales_invoices", sale["id"])
+                # The stock movement will be removed by the sale deletion.
+                return
+
+    audit_delete(table_name, record)
+    supabase.table(table_name).delete().eq("id", record_id).execute()
+
+
+def render_delete_control(table_name, records, label_builder, key, transaction=False):
+    """Reusable test-data deletion control with a 3-day deletion audit."""
+    valid = [r for r in records if r.get("id")]
+    if not valid:
+        return
+    with st.expander("🗑️ Delete test data", expanded=False):
+        st.caption("Deleted records are retained in the deletion audit for 3 days.")
+        options = {label_builder(r): r["id"] for r in valid}
+        selected_label = st.selectbox("Select record", list(options.keys()), key=key)
+        confirm = st.checkbox("I confirm this is test data and should be deleted.", key=f"{key}_confirm")
+        if st.button("Delete selected record", type="secondary", key=f"{key}_button"):
+            if not confirm:
+                st.warning("Tick the confirmation box before deleting.")
+            else:
+                try:
+                    if transaction:
+                        delete_transaction(table_name, options[selected_label])
+                    else:
+                        delete_record(table_name, options[selected_label])
+                    st.success("Record deleted. The deletion snapshot is retained for 3 days.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Unable to delete record: {e}")
 
 
 def stock_balance(item_id):
@@ -425,6 +583,7 @@ if "user" not in st.session_state:
     st.stop()
 
 user = st.session_state.user
+cleanup_deletion_audit()
 
 
 # ---------------------------------------------------------------------
@@ -1179,7 +1338,7 @@ elif page == "Stock Control":
 
                         try:
 
-                            (
+                            dispatch_response = (
                                 supabase
                                 .table("stock_movements")
                                 .insert(data)
@@ -1187,7 +1346,7 @@ elif page == "Stock Control":
                             )
 
                             st.success(
-                                "🚚 Dispatch recorded successfully."
+                                "🚚 Dispatch recorded successfully. The dispatch is now available to Accounts for sales processing."
                             )
 
                             st.info(
@@ -1259,6 +1418,13 @@ elif page == "Stock Control":
             rows,
             use_container_width=True,
             hide_index=True
+        )
+
+        render_delete_control(
+            "stock_items",
+            items,
+            lambda r: f'{r.get("name", "Item")} ({r.get("unit", "")})',
+            "delete_stock_item"
         )
 
         with st.expander("➕ Add stock item"):
@@ -1333,6 +1499,13 @@ elif page == "Stock Control":
             party_rows,
             use_container_width=True,
             hide_index=True
+        )
+
+        render_delete_control(
+            "business_parties",
+            parties,
+            lambda r: f'{r.get("name", "Party")} [{r.get("party_type", "")}]',
+            "delete_party"
         )
 
         with st.expander("➕ Add company / party"):
@@ -1558,6 +1731,21 @@ elif page == "Stock Control":
             out,
             use_container_width=True,
             hide_index=True
+        )
+
+        movement_records = (
+            supabase.table("stock_movements")
+            .select("*")
+            .order("movement_date", desc=True)
+            .limit(500)
+            .execute().data or []
+        )
+        render_delete_control(
+            "stock_movements",
+            movement_records,
+            lambda r: f'{r.get("movement_date")} | {r.get("direction")} | {r.get("reference_no") or "No Ref"} | {r.get("quantity", 0)}',
+            "delete_stock_movement",
+            transaction=True
         )
 
 
@@ -2187,6 +2375,13 @@ elif page == "Accounts":
                 "No accounts available."
             )
 
+        render_delete_control(
+            "chart_of_accounts",
+            accounts,
+            lambda r: f'{r.get("account_code", "")} - {r.get("account_name", "")}',
+            "delete_chart_account"
+        )
+
     # ================================================================
     # TAB 2 - SALES REGISTER
     # ================================================================
@@ -2343,7 +2538,51 @@ elif page == "Accounts":
             hide_index=True
         )
 
+        render_delete_control(
+            "sales_invoices",
+            sales_invoices,
+            lambda r: f'{r.get("invoice_number", "Invoice")} | {r.get("invoice_date", "")} | {r.get("customer_name", "")}',
+            "delete_sales_invoice",
+            transaction=True
+        )
+
         st.divider()
+
+        # ------------------------------------------------------------
+        # STOCK DISPATCHES AWAITING SALES INVOICE
+        # ------------------------------------------------------------
+        try:
+            pending_dispatches = (
+                supabase.table("stock_movements")
+                .select("id,movement_date,party_id,reference_no,quantity,bags,weight_kg,rate_per_kg,billing_amount,stock_items(name,unit),business_parties(name)")
+                .eq("direction", "OUT")
+                .order("movement_date", desc=True)
+                .limit(200)
+                .execute().data or []
+            )
+            existing_invoice_refs = {str(x.get("invoice_number")) for x in sales_invoices}
+            pending_dispatches = [x for x in pending_dispatches if str(x.get("reference_no")) not in existing_invoice_refs]
+        except Exception:
+            pending_dispatches = []
+
+        if pending_dispatches:
+            st.markdown('<div class="section-label">Stock dispatches awaiting invoice</div>', unsafe_allow_html=True)
+            st.info("Dispatches are already recorded in Stock Control. Use the reference below as the invoice number; the customer, item, quantity, rate and billing value are already available to Accounts.")
+            pending_display = []
+            for d in pending_dispatches:
+                item = d.get("stock_items") or {}
+                party = d.get("business_parties") or {}
+                pending_display.append({
+                    "Date": d.get("movement_date"),
+                    "Dispatch Ref": d.get("reference_no"),
+                    "Customer": party.get("name"),
+                    "Item": item.get("name"),
+                    "Qty": d.get("quantity"),
+                    "Weight KG": d.get("weight_kg"),
+                    "Rate/KG": d.get("rate_per_kg"),
+                    "Billing ₹": d.get("billing_amount")
+                })
+            st.dataframe(pending_display, use_container_width=True, hide_index=True)
 
         # ------------------------------------------------------------
         # CREATE SALES INVOICE
@@ -2352,6 +2591,31 @@ elif page == "Accounts":
         with st.expander("➕ Create Sales Invoice"):
 
             st.subheader("New Sales Invoice")
+
+            dispatch_source_options = {
+                "Manual Sales Invoice": None,
+                **{
+                    f'{d.get("movement_date")} | {((d.get("business_parties") or {}).get("name") or "Customer")} | {d.get("reference_no") or "No Ref"}': d
+                    for d in pending_dispatches
+                }
+            }
+            dispatch_source_label = st.selectbox(
+                "Sales Source",
+                list(dispatch_source_options.keys()),
+                key="sales_source_dispatch"
+            )
+            source_dispatch = dispatch_source_options[dispatch_source_label]
+            if source_dispatch:
+                source_item = source_dispatch.get("stock_items") or {}
+                source_party = source_dispatch.get("business_parties") or {}
+                st.session_state["sales_invoice_number"] = str(source_dispatch.get("reference_no") or "")
+                st.session_state["sales_invoice_date"] = date.fromisoformat(str(source_dispatch.get("movement_date")))
+                st.session_state["sales_customer"] = next((f'{p.get("name") or ""} [{p.get("party_type") or ""}]' for p in parties if p.get("id") == source_dispatch.get("party_id")), "Manual Customer")
+                st.session_state["sales_customer_name"] = str(source_party.get("name") or "")
+                st.session_state["sales_quantity"] = float(source_dispatch.get("quantity") or 0)
+                st.session_state["sales_rate"] = float(source_dispatch.get("rate_per_kg") or 0)
+                st.session_state["sales_dispatch_weight"] = float(source_dispatch.get("weight_kg") or 0)
+                st.session_state["sales_description"] = str(source_item.get("name") or "")
 
             c1, c2, c3 = st.columns(3)
 
@@ -2489,6 +2753,13 @@ elif page == "Accounts":
             }
 
             if sales_item_options:
+
+                if source_dispatch:
+                    source_item_name = (source_dispatch.get("stock_items") or {}).get("name")
+                    source_item_unit = (source_dispatch.get("stock_items") or {}).get("unit")
+                    source_item_label = f"{source_item_name} ({source_item_unit})"
+                    if source_item_label in sales_item_options:
+                        st.session_state["sales_stock_item"] = source_item_label
 
                 selected_sales_item = st.selectbox(
                     "Stock Item",
@@ -2903,7 +3174,18 @@ elif page == "Accounts":
                                     journal_lines.append({"account_id": tax_id, "party_id": selected_customer_id, "debit": 0, "credit": igst_amount, "narration": f"IGST {invoice_number.strip()}"})
 
                             journal_number = create_journal_entry(invoice_date, "SALES", "SALES", created_invoice["id"], f"Sales Invoice {invoice_number.strip()}", journal_lines, user.id)
-                            supabase.table("sales_invoices").update({"journal_entry_id": None}).eq("id", created_invoice["id"]).execute()
+                            journal_row = (
+                                supabase.table("journal_entries")
+                                .select("id")
+                                .eq("entry_no", journal_number)
+                                .limit(1)
+                                .execute().data
+                                or []
+                            )
+                            if journal_row:
+                                supabase.table("sales_invoices").update({
+                                    "journal_entry_id": journal_row[0]["id"]
+                                }).eq("id", created_invoice["id"]).execute()
 
                             st.success(
                                 f"Sales Invoice {invoice_number.strip()} created, stock dispatched and Journal {journal_number} posted."
@@ -3137,6 +3419,13 @@ elif page == "Accounts":
                 purchases = supabase.table("accounts_purchases").select("*").order("bill_date", desc=True).limit(100).execute().data or []
                 if purchases:
                     st.dataframe(purchases, use_container_width=True, hide_index=True)
+                    render_delete_control(
+                        "accounts_purchases",
+                        purchases,
+                        lambda r: f'{r.get("bill_no", "Purchase")} | {r.get("bill_date", "")} | {r.get("supplier", "")}',
+                        "delete_purchase",
+                        transaction=True
+                    )
                 else:
                     st.info("No purchase records yet.")
             except Exception as e:
@@ -3230,6 +3519,13 @@ elif page == "Accounts":
                     expenses = supabase.table("accounts_expenses").select("*").order("expense_date", desc=True).limit(100).execute().data or []
                     if expenses:
                         st.dataframe(expenses, use_container_width=True, hide_index=True)
+                        render_delete_control(
+                            "accounts_expenses",
+                            expenses,
+                            lambda r: f'{r.get("expense_date", "")} | {r.get("description", "Expense")} | ₹{float(r.get("total_amount") or 0):,.2f}',
+                            "delete_expense",
+                            transaction=True
+                        )
                     else:
                         st.info("No expense records yet.")
                 except Exception as e:
@@ -3251,9 +3547,12 @@ elif page == "Accounts":
                 party_label = st.selectbox("Customer / Party", list(party_options.keys()), key="receipt_party")
                 selected_party_id = party_options[party_label]["id"]
                 try:
-                    outstanding_sales = supabase.table("sales_invoices").select("invoice_number,balance_amount,payment_status").eq("customer_id", selected_party_id).gt("balance_amount", 0).neq("payment_status", "CANCELLED").order("invoice_date", desc=True).execute().data or []
+                    outstanding_sales = supabase.table("sales_invoices").select("id,invoice_number,balance_amount,payment_status").eq("customer_id", selected_party_id).gt("balance_amount", 0).neq("payment_status", "CANCELLED").order("invoice_date", desc=True).execute().data or []
+                    receipt_outstanding = sum(float(x.get("balance_amount") or 0) for x in outstanding_sales)
                     if outstanding_sales:
                         st.info("Outstanding: " + " | ".join(f'{x.get("invoice_number")}: ₹{float(x.get("balance_amount") or 0):,.2f}' for x in outstanding_sales))
+                    else:
+                        receipt_outstanding = 0.0
                 except Exception:
                     pass
 
@@ -3262,7 +3561,7 @@ elif page == "Accounts":
                 receipt_no = r1.text_input("Receipt No.", key="receipt_no")
                 receipt_date = r2.date_input("Receipt Date", key="receipt_date")
                 r3, r4 = st.columns(2)
-                amount = r3.number_input("Amount Received", min_value=0.0, step=0.01, key="receipt_amount")
+                amount = r3.number_input("Amount Received", min_value=0.0, value=float(receipt_outstanding), step=0.01, key="receipt_amount")
                 payment_mode = r4.selectbox("Payment Mode", ["CASH", "BANK", "UPI", "CHEQUE", "OTHER"], key="receipt_payment_mode")
                 narration = st.text_input("Narration", key="receipt_narration")
                 reference_no = st.text_input("Reference No.", key="receipt_reference")
@@ -3286,7 +3585,21 @@ elif page == "Accounts":
                         response = supabase.table("accounts_receipts").insert({"receipt_no": receipt_no.strip(), "receipt_date": receipt_date.isoformat(), "party_id": selected_party_id, "amount": amount, "payment_mode": payment_mode, "bank_account_id": bank_account_id, "reference_no": reference_no.strip() or None, "narration": narration.strip() or None, "entered_by": str(user.id)}).execute()
                         receipt_id = response.data[0]["id"]
                         journal_number = create_journal_entry(receipt_date, "RECEIPT", "RECEIPT", receipt_id, narration.strip() or f"Receipt {receipt_no.strip()}", [{"account_id": bank_chart_id, "party_id": selected_party_id, "debit": amount, "credit": 0, "narration": narration.strip() or "Customer receipt"}, {"account_id": receivable_id, "party_id": selected_party_id, "debit": 0, "credit": amount, "narration": narration.strip() or "Customer receipt"}], user.id)
-                        st.success(f"Receipt saved. Journal {journal_number} posted.")
+                        remaining = float(amount)
+                        for invoice in outstanding_sales:
+                            if remaining <= 0:
+                                break
+                            balance = float(invoice.get("balance_amount") or 0)
+                            applied = min(remaining, balance)
+                            new_balance = round(balance - applied, 2)
+                            current_received = float((supabase.table("sales_invoices").select("amount_received").eq("id", invoice["id"]).limit(1).execute().data or [{"amount_received": 0}])[0].get("amount_received") or 0)
+                            supabase.table("sales_invoices").update({
+                                "amount_received": current_received + applied,
+                                "balance_amount": new_balance,
+                                "payment_status": "PAID" if new_balance <= 0.01 else "PARTIAL"
+                            }).eq("id", invoice["id"]).execute()
+                            remaining -= applied
+                        st.success(f"Receipt saved. Journal {journal_number} posted and outstanding invoices updated.")
                         st.rerun()
                     except Exception as e:
                         st.error("Unable to save receipt and post journal.")
@@ -3295,6 +3608,13 @@ elif page == "Accounts":
             st.divider()
             receipts = supabase.table("accounts_receipts").select("*").order("receipt_date", desc=True).limit(100).execute().data or []
             st.dataframe(receipts, use_container_width=True, hide_index=True) if receipts else st.info("No receipt records yet.")
+            render_delete_control(
+                "accounts_receipts",
+                receipts,
+                lambda r: f'{r.get("receipt_no", "Receipt")} | {r.get("receipt_date", "")} | ₹{float(r.get("amount") or 0):,.2f}',
+                "delete_receipt",
+                transaction=True
+            )
 
         # ============================================================
         # PAYMENTS
@@ -3307,16 +3627,26 @@ elif page == "Accounts":
             supplier_options = {f'{p.get("name", "")} [{p.get("party_type", "")}]': p for p in parties if p.get("id")}
             payable_id = find_account_id(chart_accounts, ["payable", "creditor", "supplier"], ["LIABILITY"])
             selected_supplier_id = None
+            payment_outstanding = 0.0
+            supplier_purchases = []
+            supplier_payments = []
             if supplier_options:
                 supplier_label = st.selectbox("Supplier / Party", list(supplier_options.keys()), key="payment_party")
                 selected_supplier_id = supplier_options[supplier_label]["id"]
+                try:
+                    supplier_purchases = supabase.table("accounts_purchases").select("bill_total").eq("party_id", selected_supplier_id).execute().data or []
+                    supplier_payments = supabase.table("accounts_payments").select("amount").eq("party_id", selected_supplier_id).execute().data or []
+                    payment_outstanding = max(0.0, sum(float(x.get("bill_total") or 0) for x in supplier_purchases) - sum(float(x.get("amount") or 0) for x in supplier_payments))
+                    st.info(f"Supplier outstanding payable: ₹{payment_outstanding:,.2f}")
+                except Exception:
+                    payment_outstanding = 0.0
 
             with st.form("payment_register_form", clear_on_submit=True):
                 p1, p2 = st.columns(2)
                 payment_no = p1.text_input("Payment No.", key="payment_no")
                 payment_date = p2.date_input("Payment Date", key="payment_date")
                 p3, p4 = st.columns(2)
-                amount = p3.number_input("Amount Paid", min_value=0.0, step=0.01, key="payment_amount")
+                amount = p3.number_input("Amount Paid", min_value=0.0, value=float(payment_outstanding), step=0.01, key="payment_amount")
                 payment_mode = p4.selectbox("Payment Mode", ["CASH", "BANK", "UPI", "CHEQUE", "OTHER"], key="payment_payment_mode")
                 narration = st.text_input("Narration", key="payment_narration")
                 reference_no = st.text_input("Reference No.", key="payment_reference")
@@ -3349,6 +3679,13 @@ elif page == "Accounts":
             st.divider()
             payments = supabase.table("accounts_payments").select("*").order("payment_date", desc=True).limit(100).execute().data or []
             st.dataframe(payments, use_container_width=True, hide_index=True) if payments else st.info("No payment records yet.")
+            render_delete_control(
+                "accounts_payments",
+                payments,
+                lambda r: f'{r.get("payment_no", "Payment")} | {r.get("payment_date", "")} | ₹{float(r.get("amount") or 0):,.2f}',
+                "delete_payment",
+                transaction=True
+            )
 
 
         # ============================================================
@@ -3544,6 +3881,12 @@ elif page == "Accounts":
                         display_accounts,
                         use_container_width=True,
                         hide_index=True
+                    )
+                    render_delete_control(
+                        "cash_bank_accounts",
+                        bank_accounts,
+                        lambda r: f'{r.get("account_name", "Account")} | {r.get("account_type", "")}',
+                        "delete_cash_bank"
                     )
 
                 else:
@@ -4073,6 +4416,13 @@ elif page == "Accounts":
                     display_journals,
                     use_container_width=True,
                     hide_index=True
+                )
+                render_delete_control(
+                    "journal_entries",
+                    journal_entries,
+                    lambda r: f'{r.get("entry_no", "Journal")} | {r.get("entry_date", "")} | {r.get("voucher_type", "")}',
+                    "delete_journal_entry",
+                    transaction=True
                 )
 
             else:
