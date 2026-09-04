@@ -16,17 +16,166 @@ st.set_page_config(
 # ---------------------------------------------------------------------
 st.markdown("""
 <style>
-    .block-container { padding-top: 1.4rem; padding-bottom: 2rem; }
-    [data-testid="stSidebar"] { border-right: 1px solid #e5e7eb; }
-    [data-testid="stSidebar"] h1 { font-size: 1.25rem; margin-bottom: .25rem; }
-    .module-title { font-size: 2rem; font-weight: 700; letter-spacing: -.02em; margin-bottom: .2rem; }
-    .module-subtitle { color: #64748b; margin-bottom: 1.2rem; }
-    .section-label { font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #64748b; margin: .7rem 0 .45rem; }
-    div[data-testid="stMetric"] { border: 1px solid #e5e7eb; border-radius: 12px; padding: .8rem 1rem; background: #fff; }
-    div[data-testid="stExpander"] { border-radius: 12px; border: 1px solid #e5e7eb; }
-    .status-card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 1rem; background: #fff; min-height: 100px; }
-    .status-card h4 { margin: 0 0 .3rem; }
-    .status-card p { margin: 0; color: #64748b; font-size: .9rem; }
+    /* ================================================================
+       S.P. ENTERPRISE — GLOBAL DARK ERP THEME
+       Component-specific selectors only; do not override arbitrary divs.
+       ================================================================ */
+    :root {
+        --sp-bg: #0f1115;
+        --sp-surface: #171a21;
+        --sp-surface-2: #1d222b;
+        --sp-border: #2b313c;
+        --sp-text: #f3f4f6;
+        --sp-muted: #a7b0bf;
+        --sp-accent: #ff6b35;
+    }
+
+    .block-container {
+        padding-top: 1.4rem;
+        padding-bottom: 2rem;
+    }
+
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background: var(--sp-surface);
+        border-right: 1px solid var(--sp-border);
+    }
+    [data-testid="stSidebar"] h1 {
+        font-size: 1.25rem;
+        margin-bottom: .25rem;
+        color: var(--sp-text);
+    }
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] label {
+        color: var(--sp-text);
+    }
+
+    /* Page headings */
+    .module-title {
+        font-size: 2rem;
+        font-weight: 700;
+        letter-spacing: -.02em;
+        margin-bottom: .2rem;
+        color: var(--sp-text);
+    }
+    .module-subtitle {
+        color: var(--sp-muted);
+        margin-bottom: 1.2rem;
+    }
+    .section-label {
+        font-size: .78rem;
+        font-weight: 700;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--sp-muted);
+        margin: .7rem 0 .45rem;
+    }
+
+    /* Metric cards — force the dark ERP treatment across Streamlit versions */
+    div[data-testid="stMetric"],
+    div[data-testid="stMetric"] > div,
+    div[data-testid="stMetric"] [data-testid="metric-container"] {
+        background: var(--sp-surface) !important;
+        border: 1px solid var(--sp-border) !important;
+        border-radius: 12px !important;
+        box-shadow: none !important;
+    }
+    div[data-testid="stMetric"] {
+        padding: .9rem 1rem !important;
+        min-height: 92px;
+        overflow: hidden;
+    }
+    div[data-testid="stMetric"] * {
+        background: transparent !important;
+    }
+    div[data-testid="stMetric"] label,
+    div[data-testid="stMetric"] [data-testid="stMetricLabel"],
+    div[data-testid="stMetric"] [data-testid="stMetricLabel"] * {
+        color: var(--sp-muted) !important;
+    }
+    div[data-testid="stMetric"] [data-testid="stMetricValue"],
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] * {
+        color: var(--sp-text) !important;
+    }
+    div[data-testid="stMetric"] [data-testid="stMetricDelta"],
+    div[data-testid="stMetric"] [data-testid="stMetricDelta"] * {
+        color: var(--sp-muted) !important;
+    }
+
+    /* Expander / bordered containers */
+    div[data-testid="stExpander"] {
+        border-radius: 12px;
+        border: 1px solid var(--sp-border);
+        background: var(--sp-surface);
+    }
+    div[data-testid="stExpander"] summary,
+    div[data-testid="stExpander"] summary span {
+        color: var(--sp-text) !important;
+    }
+
+    /* Custom status cards */
+    .status-card {
+        border: 1px solid var(--sp-border);
+        border-radius: 12px;
+        padding: 1rem;
+        background: var(--sp-surface);
+        min-height: 100px;
+    }
+    .status-card h4 {
+        margin: 0 0 .3rem;
+        color: var(--sp-text);
+    }
+    .status-card p {
+        margin: 0;
+        color: var(--sp-muted);
+        font-size: .9rem;
+    }
+
+    /* Tabs */
+    button[data-baseweb="tab"] {
+        color: var(--sp-muted) !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: var(--sp-accent) !important;
+    }
+
+    /* Inputs and BaseWeb controls */
+    div[data-baseweb="input"],
+    div[data-baseweb="select"],
+    div[data-baseweb="textarea"],
+    div[data-baseweb="popover"] {
+        background: var(--sp-surface-2) !important;
+        border-color: var(--sp-border) !important;
+    }
+    div[data-baseweb="input"] input,
+    div[data-baseweb="textarea"] textarea,
+    div[data-baseweb="select"] input,
+    div[data-baseweb="select"] span {
+        color: var(--sp-text) !important;
+    }
+
+    /* Dataframes */
+    div[data-testid="stDataFrame"] {
+        border: 1px solid var(--sp-border);
+        border-radius: 10px;
+        overflow: hidden;
+    }
+
+    /* Alerts / info boxes */
+    div[data-testid="stAlert"] {
+        border-radius: 10px;
+    }
+
+    /* Buttons */
+    div.stButton > button {
+        border-radius: 9px;
+        font-weight: 600;
+    }
+
+    /* Keep horizontal rules subtle on dark theme */
+    hr {
+        border-color: var(--sp-border) !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
