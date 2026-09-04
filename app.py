@@ -3561,7 +3561,7 @@ elif page == "Accounts":
                 receipt_no = r1.text_input("Receipt No.", key="receipt_no")
                 receipt_date = r2.date_input("Receipt Date", key="receipt_date")
                 r3, r4 = st.columns(2)
-                amount = r3.number_input("Amount Received", min_value=0.0, value=float(receipt_outstanding), step=0.01, key="receipt_amount")
+                amount = r3.number_input("Amount Received", min_value=0.0, value=float(receipt_outstanding if "receipt_outstanding" in locals() else 0.0), step=0.01, key="receipt_amount")
                 payment_mode = r4.selectbox("Payment Mode", ["CASH", "BANK", "UPI", "CHEQUE", "OTHER"], key="receipt_payment_mode")
                 narration = st.text_input("Narration", key="receipt_narration")
                 reference_no = st.text_input("Reference No.", key="receipt_reference")
