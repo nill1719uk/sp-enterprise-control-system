@@ -3,6 +3,14 @@ from datetime import date, datetime, timezone
 import streamlit as st
 from supabase import create_client
 import uuid
+from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
 st.set_page_config(
     page_title="S.P. Enterprise | Control System",
@@ -557,6 +565,189 @@ def create_journal_entry(
     )
 
     return journal_number
+
+# ================================================================
+# ADDED: EXCEL EXPORT + SALES INVOICE PDF
+# ================================================================
+
+COMPANY_DETAILS = {
+    "name": "S.P. Enterprise",
+    "gstin": "19AAOPH1340Q2Z8",
+    "address": "Jalan Industrial Complex, Gate 1, Lane 4, Biprannapara, Howrah-711411",
+    "email": "spenterprise97@gmail.com",
+    "bank": "Indian Overseas Bank",
+    "account_name": "S.P. Enterprise",
+    "account_number": "015102000003971",
+    "ifsc": "IOBA0000151",
+    "branch": "Howrah (0151)"
+}
+
+def rows_to_excel_bytes(rows, sheet_name="Export"):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = str(sheet_name or "Export")[:31]
+
+    if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+        headers = list(rows[0].keys())
+        for col, header in enumerate(headers, 1):
+            c = ws.cell(1, col, str(header))
+            c.font = Font(bold=True, color="FFFFFF")
+            c.fill = PatternFill("solid", fgColor="172033")
+            c.alignment = Alignment(horizontal="center", vertical="center")
+        for r, row in enumerate(rows, 2):
+            for c, header in enumerate(headers, 1):
+                value = row.get(header)
+                if isinstance(value, (dict, list)):
+                    value = str(value)
+                ws.cell(r, c, value)
+    elif isinstance(rows, list) and rows:
+        for r, row in enumerate(rows, 1):
+            if isinstance(row, (list, tuple)):
+                for c, value in enumerate(row, 1):
+                    ws.cell(r, c, value)
+            else:
+                ws.cell(r, 1, row)
+    else:
+        ws.cell(1, 1, "No records available")
+
+    thin = Side(style="thin", color="D9E2EC")
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.border = Border(bottom=thin)
+            cell.alignment = Alignment(vertical="center")
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    for col_cells in ws.columns:
+        width = 12
+        for cell in col_cells:
+            if cell.value is not None:
+                width = min(max(width, len(str(cell.value)) + 2), 40)
+        ws.column_dimensions[col_cells[0].column_letter].width = width
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output.getvalue()
+
+def add_excel_download(rows, filename, label, key, sheet_name="Export"):
+    st.download_button(
+        label=label,
+        data=rows_to_excel_bytes(rows, sheet_name),
+        file_name=filename,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key=key
+    )
+
+def invoice_to_pdf_bytes(invoice, item_rows):
+    buffer = BytesIO()
+    pdf = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        rightMargin=14*mm, leftMargin=14*mm,
+        topMargin=14*mm, bottomMargin=14*mm
+    )
+    styles = getSampleStyleSheet()
+    title_style = styles["Title"]
+    title_style.fontName = "Helvetica-Bold"
+    title_style.fontSize = 18
+    title_style.leading = 22
+    normal = styles["Normal"]
+    normal.fontName = "Helvetica"
+    normal.fontSize = 9
+    normal.leading = 12
+
+    story = [
+        Paragraph(COMPANY_DETAILS["name"], title_style),
+        Paragraph(f'<b>GSTIN:</b> {COMPANY_DETAILS["gstin"]}', normal),
+        Paragraph(COMPANY_DETAILS["address"], normal),
+        Paragraph(f'<b>Email:</b> {COMPANY_DETAILS["email"]}', normal),
+        Spacer(1, 6*mm)
+    ]
+
+    invoice_info = [
+        [Paragraph("<b>Invoice No.</b>", normal), str(invoice.get("invoice_number") or ""),
+         Paragraph("<b>Invoice Date</b>", normal), str(invoice.get("invoice_date") or "")],
+        [Paragraph("<b>Invoice Type</b>", normal), str(invoice.get("invoice_type") or ""),
+         Paragraph("<b>Due Date</b>", normal), str(invoice.get("due_date") or "")],
+        [Paragraph("<b>Bill To</b>", normal), str(invoice.get("customer_name") or ""),
+         Paragraph("<b>Payment Status</b>", normal), str(invoice.get("payment_status") or "")]
+    ]
+    info = Table(invoice_info, colWidths=[28*mm, 65*mm, 30*mm, 52*mm])
+    info.setStyle(TableStyle([
+        ("GRID", (0,0), (-1,-1), 0.4, colors.HexColor("#C9D2DC")),
+        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#EEF2F7")),
+        ("BACKGROUND", (2,0), (2,-1), colors.HexColor("#EEF2F7")),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("FONTSIZE", (0,0), (-1,-1), 9),
+        ("LEFTPADDING", (0,0), (-1,-1), 5),
+        ("RIGHTPADDING", (0,0), (-1,-1), 5)
+    ]))
+    story += [info, Spacer(1, 6*mm)]
+
+    data = [["#", "Description", "Qty", "Unit", "Rate", "Taxable", "GST", "Amount"]]
+    for i, item in enumerate(item_rows or [], 1):
+        gst = sum(float(item.get(k) or 0) for k in ("cgst_amount", "sgst_amount", "igst_amount"))
+        data.append([
+            str(i), str(item.get("description") or ""),
+            f'{float(item.get("quantity") or 0):g}', str(item.get("unit") or ""),
+            f'₹{float(item.get("rate") or 0):,.2f}',
+            f'₹{float(item.get("taxable_amount") or 0):,.2f}',
+            f'₹{gst:,.2f}', f'₹{float(item.get("line_total") or 0):,.2f}'
+        ])
+    if len(data) == 1:
+        subtotal = float(invoice.get("subtotal") or 0)
+        total = float(invoice.get("total_amount") or 0)
+        data.append(["1", "Sales Item", "", "", "", f'₹{subtotal:,.2f}', f'₹{total-subtotal:,.2f}', f'₹{total:,.2f}'])
+
+    item_table = Table(data, repeatRows=1, colWidths=[9*mm,43*mm,15*mm,15*mm,22*mm,25*mm,22*mm,25*mm])
+    item_table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#172033")),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 8),
+        ("GRID", (0,0), (-1,-1), 0.4, colors.HexColor("#C9D2DC")),
+        ("ALIGN", (2,1), (-1,-1), "RIGHT"),
+        ("ALIGN", (0,0), (0,-1), "CENTER"),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#F7F9FC")])
+    ]))
+    story += [item_table, Spacer(1, 5*mm)]
+
+    subtotal = float(invoice.get("subtotal") or 0)
+    discount = float(invoice.get("discount_amount") or 0)
+    cgst = float(invoice.get("cgst_amount") or 0)
+    sgst = float(invoice.get("sgst_amount") or 0)
+    igst = float(invoice.get("igst_amount") or 0)
+    total = float(invoice.get("total_amount") or 0)
+    received = float(invoice.get("amount_received") or 0)
+    balance = float(invoice.get("balance_amount") or 0)
+    totals = [
+        ["Subtotal", f'₹{subtotal:,.2f}'], ["Discount", f'₹{discount:,.2f}'],
+        ["CGST", f'₹{cgst:,.2f}'], ["SGST", f'₹{sgst:,.2f}'],
+        ["IGST", f'₹{igst:,.2f}'], ["Invoice Total", f'₹{total:,.2f}'],
+        ["Amount Received", f'₹{received:,.2f}'], ["Balance Due", f'₹{balance:,.2f}']
+    ]
+    totals_table = Table(totals, colWidths=[42*mm,38*mm], hAlign="RIGHT")
+    totals_table.setStyle(TableStyle([
+        ("GRID", (0,0), (-1,-1), 0.4, colors.HexColor("#C9D2DC")),
+        ("ALIGN", (1,0), (1,-1), "RIGHT"),
+        ("FONTNAME", (0,5), (-1,5), "Helvetica-Bold"),
+        ("FONTNAME", (0,7), (-1,7), "Helvetica-Bold"),
+        ("BACKGROUND", (0,5), (-1,5), colors.HexColor("#EEF2F7")),
+        ("BACKGROUND", (0,7), (-1,7), colors.HexColor("#FFF4E5")),
+        ("FONTSIZE", (0,0), (-1,-1), 9)
+    ]))
+    story += [totals_table, Spacer(1, 7*mm),
+        Paragraph(
+            f'<b>Bank Details</b><br/>Bank: {COMPANY_DETAILS["bank"]}<br/>'
+            f'Account Name: {COMPANY_DETAILS["account_name"]}<br/>'
+            f'A/C No.: {COMPANY_DETAILS["account_number"]}<br/>'
+            f'IFSC: {COMPANY_DETAILS["ifsc"]}<br/>'
+            f'Branch: {COMPANY_DETAILS["branch"]}', normal),
+        Spacer(1, 10*mm), Paragraph("Authorised Signatory", normal)]
+
+    pdf.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
 
 # ---------------------------------------------------------------------
 # LOGIN
@@ -1419,6 +1610,7 @@ elif page == "Stock Control":
             use_container_width=True,
             hide_index=True
         )
+        add_excel_download(rows, "SP_Enterprise_Current_Stock.xlsx", "📊 Download Current Stock (Excel)", "export_current_stock", "Current Stock")
 
         render_delete_control(
             "stock_items",
@@ -1500,6 +1692,7 @@ elif page == "Stock Control":
             use_container_width=True,
             hide_index=True
         )
+        add_excel_download(party_rows, "SP_Enterprise_Party_List.xlsx", "📊 Download Party List (Excel)", "export_party_list", "Party List")
 
         render_delete_control(
             "business_parties",
@@ -1666,6 +1859,7 @@ elif page == "Stock Control":
                 use_container_width=True,
                 hide_index=True
             )
+            add_excel_download(display_rows, "SP_Enterprise_Party_Ledger.xlsx", "📊 Download Party Ledger (Excel)", "export_party_ledger", "Party Ledger")
 
 
     # -----------------------------------------------------------------
@@ -1732,6 +1926,7 @@ elif page == "Stock Control":
             use_container_width=True,
             hide_index=True
         )
+        add_excel_download(out, "SP_Enterprise_Stock_Movement_Register.xlsx", "📊 Download Movement Register (Excel)", "export_movement_register", "Movement Register")
 
         movement_records = (
             supabase.table("stock_movements")
@@ -2236,6 +2431,7 @@ elif page == "Accounts":
                 use_container_width=True,
                 hide_index=True
             )
+            add_excel_download(display_accounts, "SP_Enterprise_Chart_of_Accounts.xlsx", "📊 Download Chart of Accounts (Excel)", "export_chart_of_accounts", "Chart of Accounts")
 
 
         else:
@@ -2537,6 +2733,7 @@ elif page == "Accounts":
             use_container_width=True,
             hide_index=True
         )
+        add_excel_download(register_rows, "SP_Enterprise_Sales_Register.xlsx", "📊 Download Sales Register (Excel)", "export_sales_register", "Sales Register")
 
         render_delete_control(
             "sales_invoices",
@@ -2583,6 +2780,38 @@ elif page == "Accounts":
                     "Billing ₹": d.get("billing_amount")
                 })
             st.dataframe(pending_display, use_container_width=True, hide_index=True)
+
+        # ------------------------------------------------------------
+        # ADDED: SALES INVOICE PDF
+        # ------------------------------------------------------------
+        if sales_invoices:
+            st.markdown('<div class="section-label">Sales Invoice PDF</div>', unsafe_allow_html=True)
+            pdf_options = {
+                f'{x.get("invoice_number", "Invoice")} | {x.get("invoice_date", "")} | {x.get("customer_name", "")}': x
+                for x in sales_invoices if x.get("id")
+            }
+            if pdf_options:
+                selected_pdf_label = st.selectbox("Select saved invoice", list(pdf_options.keys()), key="sales_pdf_invoice")
+                selected_pdf_invoice = pdf_options[selected_pdf_label]
+                try:
+                    selected_items = (
+                        supabase.table("sales_invoice_items")
+                        .select("*")
+                        .eq("sales_invoice_id", selected_pdf_invoice["id"])
+                        .order("id")
+                        .execute().data or []
+                    )
+                    pdf_bytes = invoice_to_pdf_bytes(selected_pdf_invoice, selected_items)
+                    st.download_button(
+                        "🧾 Download Invoice PDF",
+                        data=pdf_bytes,
+                        file_name=f'SP_Enterprise_{selected_pdf_invoice.get("invoice_number") or "Invoice"}.pdf',
+                        mime="application/pdf",
+                        key="download_sales_invoice_pdf"
+                    )
+                except Exception as e:
+                    st.error("Unable to generate invoice PDF.")
+                    st.code(str(e))
 
         # ------------------------------------------------------------
         # CREATE SALES INVOICE
@@ -3419,6 +3648,7 @@ elif page == "Accounts":
                 purchases = supabase.table("accounts_purchases").select("*").order("bill_date", desc=True).limit(100).execute().data or []
                 if purchases:
                     st.dataframe(purchases, use_container_width=True, hide_index=True)
+                    add_excel_download(purchases, "SP_Enterprise_Purchases.xlsx", "📊 Download Purchases (Excel)", "export_purchases", "Purchases")
                     render_delete_control(
                         "accounts_purchases",
                         purchases,
@@ -3519,6 +3749,7 @@ elif page == "Accounts":
                     expenses = supabase.table("accounts_expenses").select("*").order("expense_date", desc=True).limit(100).execute().data or []
                     if expenses:
                         st.dataframe(expenses, use_container_width=True, hide_index=True)
+                        add_excel_download(expenses, "SP_Enterprise_Expenses.xlsx", "📊 Download Expenses (Excel)", "export_expenses", "Expenses")
                         render_delete_control(
                             "accounts_expenses",
                             expenses,
@@ -3608,6 +3839,8 @@ elif page == "Accounts":
             st.divider()
             receipts = supabase.table("accounts_receipts").select("*").order("receipt_date", desc=True).limit(100).execute().data or []
             st.dataframe(receipts, use_container_width=True, hide_index=True) if receipts else st.info("No receipt records yet.")
+            if receipts:
+                add_excel_download(receipts, "SP_Enterprise_Receipts.xlsx", "📊 Download Receipts (Excel)", "export_receipts", "Receipts")
             render_delete_control(
                 "accounts_receipts",
                 receipts,
@@ -3679,6 +3912,8 @@ elif page == "Accounts":
             st.divider()
             payments = supabase.table("accounts_payments").select("*").order("payment_date", desc=True).limit(100).execute().data or []
             st.dataframe(payments, use_container_width=True, hide_index=True) if payments else st.info("No payment records yet.")
+            if payments:
+                add_excel_download(payments, "SP_Enterprise_Payments.xlsx", "📊 Download Payments (Excel)", "export_payments", "Payments")
             render_delete_control(
                 "accounts_payments",
                 payments,
@@ -3882,6 +4117,7 @@ elif page == "Accounts":
                         use_container_width=True,
                         hide_index=True
                     )
+                    add_excel_download(display_accounts, "SP_Enterprise_Cash_Bank_Accounts.xlsx", "📊 Download Cash / Bank Accounts (Excel)", "export_cash_bank_accounts", "Cash Bank Accounts")
                     render_delete_control(
                         "cash_bank_accounts",
                         bank_accounts,
@@ -4417,6 +4653,7 @@ elif page == "Accounts":
                     use_container_width=True,
                     hide_index=True
                 )
+                add_excel_download(display_journals, "SP_Enterprise_Journal_Register.xlsx", "📊 Download Journal Register (Excel)", "export_journal_register", "Journal Register")
                 render_delete_control(
                     "journal_entries",
                     journal_entries,
@@ -4523,6 +4760,7 @@ if page == "Documents":
                 "Notes": d.get("notes")
             })
         st.dataframe(display_documents, use_container_width=True, hide_index=True)
+        add_excel_download(display_documents, "SP_Enterprise_Documents.xlsx", "📊 Download Documents (Excel)", "export_documents", "Documents")
 
         with st.expander("🗑️ Delete a test document"):
             options = {f'{d.get("document_name")} | {d.get("document_number") or "No Ref"}': d.get("id") for d in documents if d.get("id")}
