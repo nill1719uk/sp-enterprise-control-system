@@ -3244,19 +3244,6 @@ elif page == "Stock Control":
             st.caption("Modification access is restricted to the authorised account.")
 
 
-if has_feature("MODIFY_STOCK"):
-    with st.expander("🧾 Modification Audit", expanded=False):
-        try:
-            mod_audit = supabase.table("modification_audit").select("*").order("modified_at", desc=True).limit(100).execute().data or []
-            if mod_audit:
-                audit_search = st.text_input("🔎 Search Modification Audit", key="modification_audit_search", placeholder="Record ID, table, user...")
-                filtered_audit = filter_display_rows(mod_audit, audit_search)
-                st.dataframe(filtered_audit, use_container_width=True, hide_index=True)
-                add_excel_download(filtered_audit, "SP_Enterprise_Modification_Audit.xlsx", "📊 Download Modification Audit (Excel)", "export_modification_audit", "Modification Audit")
-            else:
-                st.info("No stock modifications recorded yet.")
-        except Exception as e:
-            st.warning(f"Unable to load Modification Audit: {e}")
 
 
 # ---------------------------------------------------------------------
@@ -6511,6 +6498,22 @@ if page == "Documents":
     else:
         st.info("No documents recorded yet.")
 
+
+
+
+if has_feature("MODIFY_STOCK"):
+    with st.expander("🧾 Modification Audit", expanded=False):
+        try:
+            mod_audit = supabase.table("modification_audit").select("*").order("modified_at", desc=True).limit(100).execute().data or []
+            if mod_audit:
+                audit_search = st.text_input("🔎 Search Modification Audit", key="modification_audit_search", placeholder="Record ID, table, user...")
+                filtered_audit = filter_display_rows(mod_audit, audit_search)
+                st.dataframe(filtered_audit, use_container_width=True, hide_index=True)
+                add_excel_download(filtered_audit, "SP_Enterprise_Modification_Audit.xlsx", "📊 Download Modification Audit (Excel)", "export_modification_audit", "Modification Audit")
+            else:
+                st.info("No stock modifications recorded yet.")
+        except Exception as e:
+            st.warning(f"Unable to load Modification Audit: {e}")
 
 
 # ---------------------------------------------------------------------
