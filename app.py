@@ -749,6 +749,400 @@ def invoice_to_pdf_bytes(invoice, item_rows):
     buffer.seek(0)
     return buffer.getvalue()
 
+
+# ================================================================
+# NEW FEATURE HELPERS - ADDITIVE ONLY
+# ================================================================
+
+def has_feature(feature_name):
+    """Return True only when the current authenticated user has an active feature grant."""
+    try:
+        rows = (
+            supabase.table("feature_access")
+            .select("id")
+            .eq("user_id", str(user.id))
+            .eq("feature", feature_name)
+            .eq("active", True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return bool(rows)
+    except Exception:
+        return False
+
+
+def filter_display_rows(rows, query, fields=None):
+    """Case-insensitive local filter used by the read-only registers."""
+    if not query or not str(query).strip():
+        return rows
+    q = str(query).strip().lower()
+    filtered = []
+    for row in rows or []:
+        if fields:
+            values = [row.get(f) for f in fields]
+        elif isinstance(row, dict):
+            values = list(row.values())
+        else:
+            values = [row]
+        if any(q in str(v or "").lower() for v in values):
+            filtered.append(row)
+    return filtered
+
+
+def refresh_order_status(order_id):
+    """Recalculate a Purchase/Sales Order's fulfillment status from linked stock movements."""
+    if not order_id:
+        return
+    try:
+        order_rows = (
+            supabase.table("orders")
+            .select("*")
+            .eq("id", order_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not order_rows:
+            return
+        order = order_rows[0]
+        item_rows = (
+            supabase.table("order_items")
+            .select("quantity,weight_kg")
+            .eq("order_id", order_id)
+            .execute()
+            .data
+            or []
+        )
+        ordered_qty = sum(float(x.get("quantity") or 0) for x in item_rows)
+        ordered_weight = sum(float(x.get("weight_kg") or 0) for x in item_rows)
+        direction = "IN" if order.get("order_type") == "PURCHASE" else "OUT"
+        movement_rows = (
+            supabase.table("stock_movements")
+            .select("quantity,weight_kg")
+            .eq("order_id", order_id)
+            .eq("direction", direction)
+            .execute()
+            .data
+            or []
+        )
+        fulfilled_qty = sum(float(x.get("quantity") or 0) for x in movement_rows)
+        fulfilled_weight = sum(float(x.get("weight_kg") or 0) for x in movement_rows)
+        if order.get("status") == "CANCELLED":
+            return
+        qty_complete = ordered_qty <= 0 or fulfilled_qty + 0.0001 >= ordered_qty
+        weight_complete = ordered_weight <= 0 or fulfilled_weight + 0.0001 >= ordered_weight
+        if fulfilled_qty <= 0 and fulfilled_weight <= 0:
+            new_status = "OPEN"
+        elif qty_complete and weight_complete:
+            new_status = "COMPLETED"
+        else:
+            new_status = "PARTIAL"
+        supabase.table("orders").update({"status": new_status}).eq("id", order_id).execute()
+    except Exception:
+        pass
+
+
+def order_summary_rows(order_type=None, query="", status_filter="ALL"):
+    """Build human-readable order register rows with dynamically calculated fulfillment."""
+    try:
+        q = supabase.table("orders").select("*").order("order_date", desc=True).limit(1000)
+        if order_type:
+            q = q.eq("order_type", order_type)
+        if status_filter != "ALL":
+            q = q.eq("status", status_filter)
+        orders = q.execute().data or []
+    except Exception:
+        orders = []
+
+    party_rows = {}
+    try:
+        parties_local = supabase.table("business_parties").select("id,name,party_type").execute().data or []
+        party_rows = {str(x.get("id")): x for x in parties_local}
+    except Exception:
+        pass
+
+    try:
+        item_rows = supabase.table("order_items").select("*").execute().data or []
+    except Exception:
+        item_rows = []
+    items_by_order = {}
+    for item in item_rows:
+        items_by_order.setdefault(str(item.get("order_id")), []).append(item)
+
+    try:
+        movements = supabase.table("stock_movements").select("order_id,quantity,weight_kg,direction").not_.is_("order_id", "null").execute().data or []
+    except Exception:
+        movements = []
+    movement_by_order = {}
+    for m in movements:
+        oid = str(m.get("order_id"))
+        movement_by_order.setdefault(oid, []).append(m)
+
+    output = []
+    for order in orders:
+        oid = str(order.get("id"))
+        items = items_by_order.get(oid, [])
+        ordered_qty = sum(float(x.get("quantity") or 0) for x in items)
+        ordered_weight = sum(float(x.get("weight_kg") or 0) for x in items)
+        direction = "IN" if order.get("order_type") == "PURCHASE" else "OUT"
+        linked = [m for m in movement_by_order.get(oid, []) if m.get("direction") == direction]
+        fulfilled_qty = sum(float(x.get("quantity") or 0) for x in linked)
+        fulfilled_weight = sum(float(x.get("weight_kg") or 0) for x in linked)
+        pending_qty = max(ordered_qty - fulfilled_qty, 0)
+        pending_weight = max(ordered_weight - fulfilled_weight, 0)
+        party = party_rows.get(str(order.get("party_id")), {})
+        item_names = ", ".join(dict.fromkeys(str(x.get("description") or "") for x in items if x.get("description")))
+        row = {
+            "Order No.": order.get("order_number"),
+            "Type": order.get("order_type"),
+            "Date": order.get("order_date"),
+            "Party": party.get("name") or "",
+            "Reference": order.get("reference_no"),
+            "Item(s)": item_names,
+            "Ordered Qty": ordered_qty,
+            "Fulfilled Qty": fulfilled_qty,
+            "Pending Qty": pending_qty,
+            "Ordered Weight KG": ordered_weight,
+            "Fulfilled Weight KG": fulfilled_weight,
+            "Pending Weight KG": pending_weight,
+            "Status": order.get("status"),
+            "Expected / Required": order.get("expected_date") or order.get("required_date"),
+            "Notes": order.get("notes")
+        }
+        if query:
+            searchable = " ".join(str(v or "") for v in row.values()).lower()
+            if str(query).strip().lower() not in searchable:
+                continue
+        output.append(row)
+    return output, orders
+
+
+def jobwork_summary(jobwork_id):
+    """Return calculated input/output/waste values for a jobwork record."""
+    try:
+        record_rows = supabase.table("jobwork_records").select("*").eq("id", jobwork_id).limit(1).execute().data or []
+        record = record_rows[0] if record_rows else {}
+    except Exception:
+        record = {}
+    try:
+        movements = (
+            supabase.table("stock_movements")
+            .select("direction,movement_type,quantity,weight_kg,item_id,reference_no,stock_items(name,unit)")
+            .eq("jobwork_id", jobwork_id)
+            .order("movement_date")
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        movements = []
+    sent = [m for m in movements if m.get("movement_type") == "JOBWORK_OUT"]
+    returned = [m for m in movements if m.get("movement_type") == "JOBWORK_IN"]
+    sent_qty = sum(float(x.get("quantity") or 0) for x in sent)
+    sent_weight = sum(float(x.get("weight_kg") or 0) for x in sent)
+    returned_qty = sum(float(x.get("quantity") or 0) for x in returned)
+    returned_weight = sum(float(x.get("weight_kg") or 0) for x in returned)
+    waste_qty = float(record.get("waste_quantity") or 0)
+    waste_weight = float(record.get("waste_weight_kg") or 0)
+    pending_qty = max(sent_qty - returned_qty - waste_qty, 0)
+    pending_weight = max(sent_weight - returned_weight - waste_weight, 0)
+    return {
+        "record": record,
+        "movements": movements,
+        "sent_qty": sent_qty,
+        "sent_weight": sent_weight,
+        "returned_qty": returned_qty,
+        "returned_weight": returned_weight,
+        "waste_qty": waste_qty,
+        "waste_weight": waste_weight,
+        "pending_qty": pending_qty,
+        "pending_weight": pending_weight,
+    }
+
+
+def refresh_jobwork_status(jobwork_id):
+    try:
+        summary = jobwork_summary(jobwork_id)
+        if not summary["record"] or summary["record"].get("status") == "CANCELLED":
+            return
+        if summary["returned_weight"] <= 0 and summary["returned_qty"] <= 0:
+            new_status = "SENT"
+        elif summary["pending_weight"] <= 0.01 and (summary["sent_weight"] > 0 or summary["pending_qty"] <= 0.01):
+            new_status = "COMPLETED"
+        else:
+            new_status = "PARTIAL"
+        supabase.table("jobwork_records").update({"status": new_status}).eq("id", jobwork_id).execute()
+    except Exception:
+        pass
+
+
+def global_search(query):
+    """Read-only cross-register search for the Dashboard."""
+    q = str(query or "").strip().lower()
+    if not q:
+        return {}
+    results = {}
+
+    def match_rows(rows, key_fields=None):
+        matched = []
+        for row in rows or []:
+            if key_fields:
+                vals = [row.get(k) for k in key_fields]
+            else:
+                vals = list(row.values()) if isinstance(row, dict) else [row]
+            if any(q in str(v or "").lower() for v in vals):
+                matched.append(row)
+        return matched
+
+    try:
+        items_local = supabase.table("stock_items").select("id,name,unit,minimum_level,active").eq("active", True).execute().data or []
+        matched = match_rows(items_local, ["name", "unit"])
+        if matched:
+            results["Stock Items"] = matched
+    except Exception:
+        pass
+
+    try:
+        parties_local = supabase.table("business_parties").select("id,name,party_type,phone,gstin").execute().data or []
+        matched = match_rows(parties_local, ["name", "party_type", "phone", "gstin"])
+        if matched:
+            results["Parties"] = matched
+    except Exception:
+        pass
+
+    try:
+        movements_local = (
+            supabase.table("stock_movements")
+            .select("movement_date,direction,movement_type,reference_no,quantity,bags,weight_kg,rate_per_kg,billing_amount,vehicle_no,handled_by,notes,stock_items(name,unit),business_parties(name)")
+            .order("movement_date", desc=True).limit(1000).execute().data or []
+        )
+        movement_rows = []
+        for r in movements_local:
+            item = r.get("stock_items") or {}
+            party = r.get("business_parties") or {}
+            movement_rows.append({
+                "Date": r.get("movement_date"),
+                "Movement": r.get("movement_type") or r.get("direction"),
+                "Direction": r.get("direction"),
+                "Party": party.get("name"),
+                "Challan / Reference": r.get("reference_no"),
+                "Item": item.get("name"),
+                "Qty": r.get("quantity"),
+                "Weight KG": r.get("weight_kg"),
+                "Billing ₹": r.get("billing_amount"),
+                "Vehicle": r.get("vehicle_no"),
+                "Handled By": r.get("handled_by"),
+                "Notes": r.get("notes")
+            })
+        matched = match_rows(movement_rows)
+        if matched:
+            results["Stock Movements"] = matched[:100]
+    except Exception:
+        pass
+
+    try:
+        orders_data, _ = order_summary_rows(query=q)
+        if orders_data:
+            results["Orders"] = orders_data[:100]
+    except Exception:
+        pass
+
+    try:
+        sales_local = supabase.table("sales_invoices").select("invoice_number,invoice_date,customer_name,total_amount,amount_received,balance_amount,payment_status,due_date").order("invoice_date", desc=True).limit(1000).execute().data or []
+        matched = match_rows(sales_local)
+        if matched:
+            results["Sales Invoices"] = matched[:100]
+    except Exception:
+        pass
+
+    try:
+        purchases_local = supabase.table("accounts_purchases").select("bill_no,bill_date,supplier,gstin,taxable_value,gst_amount,bill_total,reference_no,party_id").order("bill_date", desc=True).limit(1000).execute().data or []
+        matched = match_rows(purchases_local)
+        if matched:
+            results["Purchases"] = matched[:100]
+    except Exception:
+        pass
+
+    for title, table_name, date_field, fields in [
+        ("Expenses", "accounts_expenses", "expense_date", ["expense_date","description","reference_no","total_amount"]),
+        ("Receipts", "accounts_receipts", "receipt_date", ["receipt_no","receipt_date","reference_no","narration","amount"]),
+        ("Payments", "accounts_payments", "payment_date", ["payment_no","payment_date","reference_no","narration","amount"]),
+        ("Documents", "business_documents", "expiry_date", ["document_type","document_name","document_number","reference_no","status","notes"]),
+        ("Journal Entries", "journal_entries", "entry_date", ["entry_no","entry_date","voucher_type","reference_type","reference_id","narration"]),
+    ]:
+        try:
+            data = supabase.table(table_name).select("*").order(date_field, desc=True).limit(1000).execute().data or []
+            matched = match_rows(data, fields)
+            if matched:
+                results[title] = matched[:100]
+        except Exception:
+            pass
+
+    try:
+        jobwork_rows = supabase.table("jobwork_records").select("*").order("jobwork_date", desc=True).limit(500).execute().data or []
+        jobwork_movements = (
+            supabase.table("stock_movements")
+            .select("jobwork_id,movement_type,quantity,weight_kg,stock_items(name,unit)")
+            .not_.is_("jobwork_id", "null")
+            .execute().data or []
+        )
+        parties_local = supabase.table("business_parties").select("id,name").execute().data or []
+        party_map = {str(x.get("id")): x.get("name") for x in parties_local}
+        agg = {}
+        for m in jobwork_movements:
+            jid = str(m.get("jobwork_id"))
+            a = agg.setdefault(jid, {"sent_weight":0, "returned_weight":0, "items_sent":[], "items_returned":[]})
+            if m.get("movement_type") == "JOBWORK_OUT":
+                a["sent_weight"] += float(m.get("weight_kg") or 0)
+                name = (m.get("stock_items") or {}).get("name")
+                if name: a["items_sent"].append(name)
+            elif m.get("movement_type") == "JOBWORK_IN":
+                a["returned_weight"] += float(m.get("weight_kg") or 0)
+                name = (m.get("stock_items") or {}).get("name")
+                if name: a["items_returned"].append(name)
+        display = []
+        for j in jobwork_rows:
+            a = agg.get(str(j.get("id")), {})
+            waste = float(j.get("waste_weight_kg") or 0)
+            sent = float(a.get("sent_weight") or 0)
+            returned = float(a.get("returned_weight") or 0)
+            pending = max(sent - returned - waste, 0)
+            display.append({
+                "Challan": j.get("challan_no"),
+                "Date": j.get("jobwork_date"),
+                "Jobwork Party": party_map.get(str(j.get("party_id")), ""),
+                "Material Sent": ", ".join(dict.fromkeys(a.get("items_sent", []))),
+                "Material Returned": ", ".join(dict.fromkeys(a.get("items_returned", []))),
+                "Sent KG": sent,
+                "Returned KG": returned,
+                "Waste KG": waste,
+                "Pending KG": pending,
+                "Status": j.get("status"),
+                "Notes": j.get("notes")
+            })
+        matched = match_rows(display)
+        if matched:
+            results["JOBWORK"] = matched[:100]
+    except Exception:
+        pass
+
+    return results
+
+
+def render_recent_frame(title, rows, query_key, empty_text="No records yet."):
+    st.markdown(f"### {title}")
+    q = st.text_input(f"🔎 Search {title}", key=query_key, placeholder="Search this list...")
+    filtered = filter_display_rows(rows, q)
+    if filtered:
+        st.dataframe(filtered, use_container_width=True, hide_index=True)
+    else:
+        st.info(empty_text)
+    return filtered
+
+
 # ---------------------------------------------------------------------
 # LOGIN
 # ---------------------------------------------------------------------
@@ -787,7 +1181,7 @@ with st.sidebar:
 
     page = st.radio(
         "Module",
-        ["Dashboard", "Stock Control", "Accounts", "Documents"]
+        ["Dashboard", "Stock Control", "Orders", "JOBWORK", "Accounts", "Documents"]
     )
 
     if st.button("Sign out"):
@@ -844,6 +1238,153 @@ if page == "Dashboard":
     f3.metric("Stock Movements", len(movements))
 
     st.info("Integrated workflow: Stock Receiving → Purchase Confirmation → Payable → Payment; Sales → Stock Dispatch → Receivable → Receipt; Expenses → Journal; all feeding the Chart of Accounts.")
+
+    # ================================================================
+    # ENTERPRISE-WIDE SEARCH
+    # ================================================================
+    st.markdown('<div class="section-label">Enterprise Search</div>', unsafe_allow_html=True)
+    dashboard_search = st.text_input(
+        "🔎 Search across the Enterprise",
+        key="dashboard_global_search",
+        placeholder="Item, party, challan, invoice, order no., Jobwork challan, reference..."
+    )
+    if dashboard_search.strip():
+        search_results = global_search(dashboard_search)
+        if search_results:
+            st.success(f"Search results for: {dashboard_search.strip()}")
+            for section_name, section_rows in search_results.items():
+                st.markdown(f"**{section_name}**")
+                st.dataframe(section_rows, use_container_width=True, hide_index=True)
+        else:
+            st.warning("No matching records found.")
+
+    # ================================================================
+    # MANAGEMENT SNAPSHOT
+    # ================================================================
+    st.markdown('<div class="section-label">Enterprise Activity Snapshot</div>', unsafe_allow_html=True)
+    dash_tab1, dash_tab2, dash_tab3, dash_tab4, dash_tab5 = st.tabs([
+        "📦 Stock", "📋 Orders", "💰 Accounts", "🏭 JOBWORK", "📁 Documents"
+    ])
+
+    with dash_tab1:
+        try:
+            recent_stock = (
+                supabase.table("stock_movements")
+                .select("movement_date,direction,movement_type,reference_no,quantity,bags,weight_kg,rate_per_kg,billing_amount,stock_items(name,unit),business_parties(name)")
+                .order("movement_date", desc=True).limit(25).execute().data or []
+            )
+            stock_snapshot = []
+            for r in recent_stock:
+                item = r.get("stock_items") or {}
+                party = r.get("business_parties") or {}
+                stock_snapshot.append({
+                    "Date": r.get("movement_date"),
+                    "Movement": r.get("movement_type") or r.get("direction"),
+                    "Direction": r.get("direction"),
+                    "Party": party.get("name"),
+                    "Challan": r.get("reference_no"),
+                    "Item": item.get("name"),
+                    "Qty": r.get("quantity"),
+                    "Weight KG": r.get("weight_kg"),
+                    "Value": r.get("billing_amount")
+                })
+            render_recent_frame("Recent Stock Movements", stock_snapshot, "dashboard_recent_stock_search")
+        except Exception as e:
+            st.error(f"Unable to load stock snapshot: {e}")
+
+        try:
+            current_stock_snapshot = []
+            for x in items[:500]:
+                _, _, bal_qty, _, _, bal_weight = stock_balance(x["id"])
+                current_stock_snapshot.append({
+                    "Item": x.get("name"),
+                    "Unit": x.get("unit"),
+                    "Current Qty": bal_qty,
+                    "Current Weight KG": bal_weight,
+                    "Minimum Level": x.get("minimum_level"),
+                    "Status": "⚠️ LOW" if bal_qty <= float(x.get("minimum_level") or 0) else "OK"
+                })
+            render_recent_frame("Current Stock", current_stock_snapshot, "dashboard_current_stock_search")
+        except Exception as e:
+            st.error(f"Unable to load current stock snapshot: {e}")
+
+    with dash_tab2:
+        try:
+            purchase_orders, _ = order_summary_rows(order_type="PURCHASE")
+            render_recent_frame("Purchase Orders", purchase_orders[:25], "dashboard_purchase_orders_search")
+        except Exception as e:
+            st.error(f"Unable to load purchase orders: {e}")
+        try:
+            sales_orders, _ = order_summary_rows(order_type="SALES")
+            render_recent_frame("Sales Orders", sales_orders[:25], "dashboard_sales_orders_search")
+        except Exception as e:
+            st.error(f"Unable to load sales orders: {e}")
+
+    with dash_tab3:
+        try:
+            sales_snapshot = []
+            for x in sales[:25]:
+                sales_snapshot.append({
+                    "Invoice": x.get("invoice_number"),
+                    "Date": x.get("invoice_date"),
+                    "Customer": x.get("customer_name"),
+                    "Total": x.get("total_amount"),
+                    "Received": x.get("amount_received"),
+                    "Balance": x.get("balance_amount"),
+                    "Status": x.get("payment_status")
+                })
+            render_recent_frame("Recent Sales", sales_snapshot, "dashboard_sales_search")
+        except Exception as e:
+            st.error(f"Unable to load sales snapshot: {e}")
+        try:
+            purchase_snapshot = supabase.table("accounts_purchases").select("bill_no,bill_date,supplier,bill_total,gst_amount").order("bill_date", desc=True).limit(25).execute().data or []
+            render_recent_frame("Recent Purchases", purchase_snapshot, "dashboard_purchases_search")
+        except Exception as e:
+            st.error(f"Unable to load purchase snapshot: {e}")
+        try:
+            expense_snapshot = supabase.table("accounts_expenses").select("expense_date,description,total_amount,payment_mode,reference_no").order("expense_date", desc=True).limit(25).execute().data or []
+            render_recent_frame("Recent Expenses", expense_snapshot, "dashboard_expenses_search")
+        except Exception as e:
+            st.error(f"Unable to load expense snapshot: {e}")
+        try:
+            receipt_snapshot = supabase.table("accounts_receipts").select("receipt_no,receipt_date,party_id,amount,payment_mode,reference_no,narration").order("receipt_date", desc=True).limit(25).execute().data or []
+            render_recent_frame("Recent Receipts", receipt_snapshot, "dashboard_receipts_search")
+        except Exception as e:
+            st.error(f"Unable to load receipt snapshot: {e}")
+        try:
+            payment_snapshot = supabase.table("accounts_payments").select("payment_no,payment_date,party_id,amount,payment_mode,reference_no,narration").order("payment_date", desc=True).limit(25).execute().data or []
+            render_recent_frame("Recent Payments", payment_snapshot, "dashboard_payments_search")
+        except Exception as e:
+            st.error(f"Unable to load payment snapshot: {e}")
+
+    with dash_tab4:
+        try:
+            jobwork_data = supabase.table("jobwork_records").select("*").order("jobwork_date", desc=True).limit(25).execute().data or []
+            party_map_rows = supabase.table("business_parties").select("id,name").execute().data or []
+            party_map = {str(x.get("id")): x.get("name") for x in party_map_rows}
+            jobwork_snapshot = []
+            for j in jobwork_data:
+                s = jobwork_summary(j.get("id"))
+                jobwork_snapshot.append({
+                    "Challan": j.get("challan_no"),
+                    "Date": j.get("jobwork_date"),
+                    "Party": party_map.get(str(j.get("party_id"))),
+                    "Sent KG": s["sent_weight"],
+                    "Returned KG": s["returned_weight"],
+                    "Waste KG": s["waste_weight"],
+                    "Pending KG": s["pending_weight"],
+                    "Status": j.get("status")
+                })
+            render_recent_frame("JOBWORK Register", jobwork_snapshot, "dashboard_jobwork_search")
+        except Exception as e:
+            st.error(f"Unable to load Jobwork snapshot: {e}")
+
+    with dash_tab5:
+        try:
+            docs_snapshot = supabase.table("business_documents").select("document_type,document_name,document_number,expiry_date,status").order("expiry_date").limit(25).execute().data or []
+            render_recent_frame("Documents", docs_snapshot, "dashboard_documents_search")
+        except Exception as e:
+            st.error(f"Unable to load document snapshot: {e}")
 
 
 # ---------------------------------------------------------------------
@@ -915,12 +1456,15 @@ elif page == "Stock Control":
 
         else:
 
+            movement_types = [
+                "📥 Receive Stock",
+                "📤 New Dispatch"
+            ]
+            if has_feature("LEGACY_STOCK"):
+                movement_types.append("📥 Legacy / Opening Stock")
             movement_mode = st.radio(
                 "Transaction Type",
-                [
-                    "📥 Receive Stock",
-                    "📤 New Dispatch"
-                ],
+                movement_types,
                 horizontal=True,
                 key="movement_mode"
             )
@@ -959,6 +1503,38 @@ elif page == "Stock Control":
 
                 item = lookup_items[item_label]
                 party = lookup_parties[party_label]
+
+                # Optional link to an existing Purchase Order. This does not affect stock until the receipt is saved.
+                purchase_order_options = {"No Purchase Order": None}
+                try:
+                    purchase_orders_for_party = (
+                        supabase.table("orders")
+                        .select("id,order_number,reference_no")
+                        .eq("order_type", "PURCHASE")
+                        .eq("party_id", party["id"])
+                        .neq("status", "CANCELLED")
+                        .neq("status", "COMPLETED")
+                        .order("order_date", desc=True)
+                        .limit(100)
+                        .execute().data or []
+                    )
+                    purchase_order_ids = [x.get("id") for x in purchase_orders_for_party]
+                    if purchase_order_ids:
+                        order_item_rows = (
+                            supabase.table("order_items")
+                            .select("order_id,stock_item_id,description")
+                            .in_("order_id", purchase_order_ids)
+                            .execute().data or []
+                        )
+                        valid_order_ids = {str(x.get("order_id")) for x in order_item_rows if str(x.get("stock_item_id")) == str(item["id"])}
+                        for po in purchase_orders_for_party:
+                            if str(po.get("id")) in valid_order_ids:
+                                purchase_order_options[f'{po.get("order_number")} | {po.get("reference_no") or "No Ref"}'] = po.get("id")
+                except Exception:
+                    pass
+
+                order_choice_label = st.selectbox("Link to Purchase Order (optional)", list(purchase_order_options.keys()), key="receive_order_link")
+                selected_purchase_order_id = purchase_order_options[order_choice_label]
 
                 c1, c2, c3 = st.columns(3)
 
@@ -1096,7 +1672,8 @@ elif page == "Stock Control":
                             "handled_by": handler.strip() or None,
                             "notes": notes.strip() or None,
                             "entered_by": str(user.id),
-                            "duplicate_fingerprint": fingerprint
+                            "duplicate_fingerprint": fingerprint,
+                            "order_id": selected_purchase_order_id
                         }
 
                         try:
@@ -1108,6 +1685,8 @@ elif page == "Stock Control":
                                 .execute()
                             )
 
+                            if selected_purchase_order_id:
+                                refresh_order_status(selected_purchase_order_id)
                             st.success(
                                 "Stock receipt recorded successfully."
                             )
@@ -1131,10 +1710,70 @@ elif page == "Stock Control":
 
 
             # =========================================================
+            # OPENING / LEGACY STOCK
+            # =========================================================
+
+            elif movement_mode == "📥 Legacy / Opening Stock":
+
+                st.subheader("📥 Opening / Legacy Stock")
+                if not has_feature("LEGACY_STOCK"):
+                    st.warning("This feature is restricted to the authorised account.")
+                else:
+                    st.caption("Use this only for verified physical stock already present when the historical receipt cannot be identified.")
+                    l1, l2, l3 = st.columns(3)
+                    legacy_date = l1.date_input("Stock Date", date.today(), key="legacy_date")
+                    legacy_item_label = l2.selectbox("Item", list(lookup_items), key="legacy_item")
+                    legacy_reference = l3.text_input("Legacy Reference No.", placeholder="OPENING-001", key="legacy_reference")
+                    legacy_item = lookup_items[legacy_item_label]
+                    l4, l5, l6 = st.columns(3)
+                    legacy_quantity = l4.number_input(f"Quantity ({legacy_item['unit']})", min_value=0.0, step=1.0, key="legacy_quantity")
+                    legacy_bags = l5.number_input("No. of Bags", min_value=0.0, step=1.0, key="legacy_bags")
+                    legacy_weight = l6.number_input("Weight (KG)", min_value=0.0, step=1.0, key="legacy_weight")
+                    legacy_notes = st.text_input("Notes", key="legacy_notes")
+                    legacy_reason = st.text_area("Mandatory Reason", placeholder="Existing physical stock; historical source unavailable.", key="legacy_reason")
+                    if st.button("📥 Add Legacy Stock to Inventory", type="primary", key="save_legacy_stock"):
+                        if legacy_quantity <= 0 or legacy_weight <= 0:
+                            st.error("Quantity and weight must be greater than zero.")
+                        elif not legacy_reference.strip():
+                            st.error("Legacy Reference No. is required.")
+                        elif not legacy_reason.strip():
+                            st.error("A reason is required for Opening / Legacy Stock.")
+                        else:
+                            try:
+                                data = {
+                                    "movement_date": str(legacy_date),
+                                    "item_id": legacy_item["id"],
+                                    "party_id": None,
+                                    "direction": "IN",
+                                    "quantity": legacy_quantity,
+                                    "bags": legacy_bags,
+                                    "weight_kg": legacy_weight,
+                                    "rate_per_kg": 0,
+                                    "transportation": 0,
+                                    "billing_amount": 0,
+                                    "reference_no": legacy_reference.strip(),
+                                    "vehicle_no": None,
+                                    "handled_by": None,
+                                    "notes": legacy_notes.strip() or None,
+                                    "entered_by": str(user.id),
+                                    "duplicate_fingerprint": fp(legacy_date, legacy_item["id"], "OPENING", legacy_quantity, legacy_bags, legacy_weight, legacy_reference),
+                                    "movement_type": "OPENING",
+                                    "legacy_reason": legacy_reason.strip(),
+                                    "purchase_status": "NOT_APPLICABLE",
+                                    "order_id": None,
+                                    "jobwork_id": None
+                                }
+                                supabase.table("stock_movements").insert(data).execute()
+                                st.success("Opening / Legacy Stock added successfully.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Unable to add legacy stock: {e}")
+
+            # =========================================================
             # NEW DISPATCH
             # =========================================================
 
-            else:
+            elif movement_mode == "📤 New Dispatch":
 
                 st.subheader("📤 New Dispatch")
 
@@ -1170,6 +1809,38 @@ elif page == "Stock Control":
 
                 dispatch_item = lookup_items[dispatch_item_label]
                 dispatch_party = lookup_parties[dispatch_party_label]
+
+                # Optional link to an existing Sales Order. This does not affect stock until the dispatch is saved.
+                sales_order_options = {"No Sales Order": None}
+                try:
+                    sales_orders_for_party = (
+                        supabase.table("orders")
+                        .select("id,order_number,reference_no")
+                        .eq("order_type", "SALES")
+                        .eq("party_id", dispatch_party["id"])
+                        .neq("status", "CANCELLED")
+                        .neq("status", "COMPLETED")
+                        .order("order_date", desc=True)
+                        .limit(100)
+                        .execute().data or []
+                    )
+                    sales_order_ids = [x.get("id") for x in sales_orders_for_party]
+                    if sales_order_ids:
+                        order_item_rows = (
+                            supabase.table("order_items")
+                            .select("order_id,stock_item_id")
+                            .in_("order_id", sales_order_ids)
+                            .execute().data or []
+                        )
+                        valid_order_ids = {str(x.get("order_id")) for x in order_item_rows if str(x.get("stock_item_id")) == str(dispatch_item["id"])}
+                        for so in sales_orders_for_party:
+                            if str(so.get("id")) in valid_order_ids:
+                                sales_order_options[f'{so.get("order_number")} | {so.get("reference_no") or "No Ref"}'] = so.get("id")
+                except Exception:
+                    pass
+
+                sales_order_choice_label = st.selectbox("Link to Sales Order (optional)", list(sales_order_options.keys()), key="dispatch_order_link")
+                selected_sales_order_id = sales_order_options[sales_order_choice_label]
 
                 # -----------------------------------------------------
                 # LIVE STOCK POSITION
@@ -1524,7 +2195,9 @@ elif page == "Stock Control":
                             "entered_by":
                                 str(user.id),
                             "duplicate_fingerprint":
-                                fingerprint
+                                fingerprint,
+                            "order_id":
+                                selected_sales_order_id
                         }
 
                         try:
@@ -1536,6 +2209,8 @@ elif page == "Stock Control":
                                 .execute()
                             )
 
+                            if selected_sales_order_id:
+                                refresh_order_status(selected_sales_order_id)
                             st.success(
                                 "🚚 Dispatch recorded successfully. The dispatch is now available to Accounts for sales processing."
                             )
@@ -1605,12 +2280,49 @@ elif page == "Stock Control":
                 )
             })
 
+        current_stock_search = st.text_input("🔎 Search Current Stock", key="current_stock_search", placeholder="Item name or unit...")
+        filtered_current_stock = filter_display_rows(rows, current_stock_search, ["Item", "Unit", "Status"])
         st.dataframe(
-            rows,
+            filtered_current_stock,
             use_container_width=True,
             hide_index=True
         )
-        add_excel_download(rows, "SP_Enterprise_Current_Stock.xlsx", "📊 Download Current Stock (Excel)", "export_current_stock", "Current Stock")
+        add_excel_download(filtered_current_stock, "SP_Enterprise_Current_Stock.xlsx", "📊 Download Current Stock (Excel)", "export_current_stock", "Current Stock")
+
+        if current_stock_search.strip():
+            matched_items = [x for x in items if current_stock_search.strip().lower() in str(x.get("name") or "").lower()]
+            matched_item_ids = [x.get("id") for x in matched_items]
+            if matched_item_ids:
+                try:
+                    history = (
+                        supabase.table("stock_movements")
+                        .select("movement_date,direction,movement_type,reference_no,quantity,bags,weight_kg,rate_per_kg,billing_amount,stock_items(name,unit),business_parties(name)")
+                        .in_("item_id", matched_item_ids)
+                        .order("movement_date", desc=True)
+                        .limit(1000)
+                        .execute().data or []
+                    )
+                    history_rows = []
+                    for h in history:
+                        hi = h.get("stock_items") or {}
+                        hp = h.get("business_parties") or {}
+                        history_rows.append({
+                            "Date": h.get("movement_date"),
+                            "Movement": h.get("movement_type") or h.get("direction"),
+                            "Direction": h.get("direction"),
+                            "Party": hp.get("name"),
+                            "Challan / Reference": h.get("reference_no"),
+                            "Item": hi.get("name"),
+                            "Qty": h.get("quantity"),
+                            "Weight KG": h.get("weight_kg"),
+                            "Rate/KG": h.get("rate_per_kg"),
+                            "Billing ₹": h.get("billing_amount")
+                        })
+                    st.markdown("### Item Movement History")
+                    st.dataframe(history_rows, use_container_width=True, hide_index=True)
+                    add_excel_download(history_rows, "SP_Enterprise_Item_Movement_History.xlsx", "📊 Download Item History (Excel)", "export_item_history", "Item History")
+                except Exception as e:
+                    st.warning(f"Unable to load item movement history: {e}")
 
         render_delete_control(
             "stock_items",
@@ -1687,12 +2399,14 @@ elif page == "Stock Control":
                 "Address": p.get("address")
             })
 
+        party_search = st.text_input("🔎 Search Parties", key="party_search", placeholder="Company, type, phone, GSTIN...")
+        filtered_party_rows = filter_display_rows(party_rows, party_search)
         st.dataframe(
-            party_rows,
+            filtered_party_rows,
             use_container_width=True,
             hide_index=True
         )
-        add_excel_download(party_rows, "SP_Enterprise_Party_List.xlsx", "📊 Download Party List (Excel)", "export_party_list", "Party List")
+        add_excel_download(filtered_party_rows, "SP_Enterprise_Party_List.xlsx", "📊 Download Party List (Excel)", "export_party_list", "Party List")
 
         render_delete_control(
             "business_parties",
@@ -1709,7 +2423,7 @@ elif page == "Stock Control":
 
                 party_type = st.selectbox(
                     "Party Type",
-                    ["SUPPLIER", "CUSTOMER", "BOTH"]
+                    ["SUPPLIER", "CUSTOMER", "BOTH", "JOBWORK"]
                 )
 
                 contact_person = st.text_input(
@@ -1854,12 +2568,14 @@ elif page == "Stock Control":
                 f"₹{total_billing:,.2f}"
             )
 
+            party_ledger_search = st.text_input("🔎 Search Party Ledger", key="party_ledger_search", placeholder="Item, challan, date, movement...")
+            filtered_party_ledger_rows = filter_display_rows(display_rows, party_ledger_search)
             st.dataframe(
-                display_rows,
+                filtered_party_ledger_rows,
                 use_container_width=True,
                 hide_index=True
             )
-            add_excel_download(display_rows, "SP_Enterprise_Party_Ledger.xlsx", "📊 Download Party Ledger (Excel)", "export_party_ledger", "Party Ledger")
+            add_excel_download(filtered_party_ledger_rows, "SP_Enterprise_Party_Ledger.xlsx", "📊 Download Party Ledger (Excel)", "export_party_ledger", "Party Ledger")
 
 
     # -----------------------------------------------------------------
@@ -1887,7 +2603,10 @@ elif page == "Stock Control":
                 handled_by,
                 notes,
                 stock_items(name,unit),
-                business_parties(name)
+                business_parties(name),
+                movement_type,
+                order_id,
+                jobwork_id
                 """
             )
             .order("movement_date", desc=True)
@@ -1906,6 +2625,8 @@ elif page == "Stock Control":
             out.append({
                 "Date": r["movement_date"],
                 "Movement": r["direction"],
+                "Movement Type": r.get("movement_type") or "NORMAL",
+                "JOBWORK": "TO JOBWORK" if r.get("movement_type") == "JOBWORK_OUT" else ("FROM JOBWORK" if r.get("movement_type") == "JOBWORK_IN" else ""),
                 "Party": party.get("name"),
                 "Challan / Reference": r.get("reference_no"),
                 "Item": item.get("name"),
@@ -1921,12 +2642,14 @@ elif page == "Stock Control":
                 "Notes": r.get("notes")
             })
 
+        movement_search = st.text_input("🔎 Search Movement Register", key="movement_register_search", placeholder="Item, party, challan, movement type, jobwork...")
+        filtered_movement = filter_display_rows(out, movement_search)
         st.dataframe(
-            out,
+            filtered_movement,
             use_container_width=True,
             hide_index=True
         )
-        add_excel_download(out, "SP_Enterprise_Stock_Movement_Register.xlsx", "📊 Download Movement Register (Excel)", "export_movement_register", "Movement Register")
+        add_excel_download(filtered_movement, "SP_Enterprise_Stock_Movement_Register.xlsx", "📊 Download Movement Register (Excel)", "export_movement_register", "Movement Register")
 
         movement_records = (
             supabase.table("stock_movements")
@@ -1943,6 +2666,435 @@ elif page == "Stock Control":
             transaction=True
         )
 
+        if has_feature("MODIFY_STOCK"):
+            st.divider()
+            with st.expander("✏️ Modify Stock Entry (Authorised Account Only)", expanded=False):
+                mod_options = {
+                    f'{r.get("movement_date")} | {r.get("direction")} | {r.get("reference_no") or "No Ref"} | {r.get("quantity", 0)}': r.get("id")
+                    for r in movement_records if r.get("id")
+                }
+                if mod_options:
+                    mod_label = st.selectbox("Select stock entry to modify", list(mod_options), key="modify_stock_record")
+                    mod_id = mod_options[mod_label]
+                    try:
+                        current_record = (supabase.table("stock_movements").select("*").eq("id", mod_id).limit(1).execute().data or [None])[0]
+                        if current_record:
+                            edit_item_options = {f'{x.get("name")} ({x.get("unit")})': x for x in items}
+                            edit_party_options = {"No Party": None}
+                            edit_party_options.update({f'{p.get("name")} [{p.get("party_type")}]': p for p in parties})
+                            current_item = next((x for x in items if str(x.get("id")) == str(current_record.get("item_id"))), items[0] if items else None)
+                            current_party = next((p for p in parties if str(p.get("id")) == str(current_record.get("party_id"))), None)
+                            current_item_label = next((k for k, v in edit_item_options.items() if current_item and str(v.get("id")) == str(current_item.get("id"))), list(edit_item_options)[0] if edit_item_options else None)
+                            current_party_label = "No Party" if not current_party else next((k for k, v in edit_party_options.items() if v and str(v.get("id")) == str(current_party.get("id"))), "No Party")
+                            st.warning("Modification is audited automatically. Linked Purchase, Sales, Order or JOBWORK records may require separate accounting review.")
+                            with st.form("modify_stock_form"):
+                                e1, e2, e3 = st.columns(3)
+                                new_date = e1.date_input("Movement Date", value=date.fromisoformat(str(current_record.get("movement_date"))))
+                                new_item_label = e2.selectbox("Item", list(edit_item_options), index=list(edit_item_options).index(current_item_label) if current_item_label in edit_item_options else 0)
+                                new_party_label = e3.selectbox("Party", list(edit_party_options), index=list(edit_party_options).index(current_party_label) if current_party_label in edit_party_options else 0)
+                                e4, e5, e6 = st.columns(3)
+                                new_qty = e4.number_input("Quantity", min_value=0.0, value=float(current_record.get("quantity") or 0), step=1.0)
+                                new_bags = e5.number_input("Bags", min_value=0.0, value=float(current_record.get("bags") or 0), step=1.0)
+                                new_weight = e6.number_input("Weight (KG)", min_value=0.0, value=float(current_record.get("weight_kg") or 0), step=1.0)
+                                e7, e8, e9 = st.columns(3)
+                                new_rate = e7.number_input("Rate per KG (₹)", min_value=0.0, value=float(current_record.get("rate_per_kg") or 0), step=0.50)
+                                new_transport = e8.number_input("Transportation (₹)", min_value=0.0, value=float(current_record.get("transportation") or 0), step=1.0)
+                                new_billing = e9.number_input("Billing Amount (₹)", min_value=0.0, value=float(current_record.get("billing_amount") or 0), step=1.0)
+                                e10, e11, e12 = st.columns(3)
+                                new_ref = e10.text_input("Reference / Challan", value=str(current_record.get("reference_no") or ""))
+                                new_vehicle = e11.text_input("Vehicle No.", value=str(current_record.get("vehicle_no") or ""))
+                                new_handler = e12.text_input("Handled By", value=str(current_record.get("handled_by") or ""))
+                                new_notes = st.text_input("Notes", value=str(current_record.get("notes") or ""))
+                                st.caption(f"Movement Type: {current_record.get('movement_type') or 'NORMAL'} | Direction: {current_record.get('direction')}")
+                                save_mod = st.form_submit_button("💾 Save Modification", type="primary", use_container_width=True)
+                            if save_mod:
+                                selected_new_item = edit_item_options[new_item_label]
+                                selected_new_party = edit_party_options[new_party_label]
+                                if new_qty <= 0 or new_weight <= 0 or not new_ref.strip():
+                                    st.error("Quantity, weight and reference/challan are required.")
+                                else:
+                                    # Validate OUT stock against the balance excluding this movement.
+                                    if current_record.get("direction") == "OUT":
+                                        excluded_rows = (
+                                            supabase.table("stock_movements")
+                                            .select("direction,quantity,weight_kg")
+                                            .eq("item_id", selected_new_item["id"])
+                                            .neq("id", mod_id)
+                                            .execute().data or []
+                                        )
+                                        in_qty = sum(float(x.get("quantity") or 0) for x in excluded_rows if x.get("direction") == "IN")
+                                        out_qty = sum(float(x.get("quantity") or 0) for x in excluded_rows if x.get("direction") == "OUT")
+                                        in_wt = sum(float(x.get("weight_kg") or 0) for x in excluded_rows if x.get("direction") == "IN")
+                                        out_wt = sum(float(x.get("weight_kg") or 0) for x in excluded_rows if x.get("direction") == "OUT")
+                                        if new_qty > in_qty - out_qty + 0.0001 or new_weight > in_wt - out_wt + 0.0001:
+                                            st.error("Modification blocked because the corrected OUT movement would exceed the available stock position.")
+                                            st.stop()
+                                    new_data = {
+                                        "movement_date": str(new_date),
+                                        "item_id": selected_new_item["id"],
+                                        "party_id": selected_new_party["id"] if selected_new_party else None,
+                                        "quantity": new_qty,
+                                        "bags": new_bags,
+                                        "weight_kg": new_weight,
+                                        "rate_per_kg": new_rate,
+                                        "transportation": new_transport,
+                                        "billing_amount": new_billing,
+                                        "reference_no": new_ref.strip(),
+                                        "vehicle_no": new_vehicle.strip() or None,
+                                        "handled_by": new_handler.strip() or None,
+                                        "notes": new_notes.strip() or None,
+                                        "duplicate_fingerprint": fp(new_date, selected_new_item["id"], selected_new_party["id"] if selected_new_party else None, current_record.get("direction"), new_qty, new_bags, new_weight, new_ref)
+                                    }
+                                    try:
+                                        supabase.table("stock_movements").update(new_data).eq("id", mod_id).execute()
+                                        if current_record.get("order_id"):
+                                            refresh_order_status(current_record.get("order_id"))
+                                        if current_record.get("jobwork_id"):
+                                            refresh_jobwork_status(current_record.get("jobwork_id"))
+                                        st.success("Stock entry modified successfully. The before/after record has been added to Modification Audit.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Unable to modify stock entry: {e}")
+                    except Exception as e:
+                        st.error(f"Unable to load the selected stock entry: {e}")
+        elif st.session_state.get("user"):
+            st.caption("Modification access is restricted to the authorised account.")
+
+
+if has_feature("MODIFY_STOCK"):
+    with st.expander("🧾 Modification Audit", expanded=False):
+        try:
+            mod_audit = supabase.table("modification_audit").select("*").order("modified_at", desc=True).limit(100).execute().data or []
+            if mod_audit:
+                audit_search = st.text_input("🔎 Search Modification Audit", key="modification_audit_search", placeholder="Record ID, table, user...")
+                filtered_audit = filter_display_rows(mod_audit, audit_search)
+                st.dataframe(filtered_audit, use_container_width=True, hide_index=True)
+                add_excel_download(filtered_audit, "SP_Enterprise_Modification_Audit.xlsx", "📊 Download Modification Audit (Excel)", "export_modification_audit", "Modification Audit")
+            else:
+                st.info("No stock modifications recorded yet.")
+        except Exception as e:
+            st.warning(f"Unable to load Modification Audit: {e}")
+
+
+# ---------------------------------------------------------------------
+# ORDERS
+# ---------------------------------------------------------------------
+
+elif page == "Orders":
+
+    try:
+        items = (supabase.table("stock_items").select("*").eq("active", True).order("name").execute().data or [])
+        parties = (supabase.table("business_parties").select("*").eq("active", True).order("name").execute().data or [])
+    except Exception as e:
+        items, parties = [], []
+        st.error(f"Unable to load master data for Orders: {e}")
+
+    st.markdown('<div class="module-title">Orders</div>', unsafe_allow_html=True)
+    st.markdown('<div class="module-subtitle">Separate pre-transaction order control. Orders do not change physical stock until an actual receipt or dispatch is recorded.</div>', unsafe_allow_html=True)
+
+    order_tab1, order_tab2 = st.tabs(["📥 Purchase Orders", "📤 Sales Orders"])
+
+    def render_order_create_form(order_type):
+        is_purchase = order_type == "PURCHASE"
+        label_party = "Supplier" if is_purchase else "Customer"
+        form_key = "purchase_order_form" if is_purchase else "sales_order_form"
+        order_prefix = "PO" if is_purchase else "SO"
+
+        parties_for_order = [p for p in parties if str(p.get("party_type", "")).upper() in ({"SUPPLIER", "BOTH"} if is_purchase else {"CUSTOMER", "BOTH"})]
+        party_options = {f'{p.get("name")} [{p.get("party_type")}]': p for p in parties_for_order}
+        item_options = {f'{x.get("name")} ({x.get("unit")})': x for x in items}
+
+        with st.expander(f"➕ Create {label_party} Order", expanded=True):
+            if not party_options:
+                st.warning(f"Create at least one {label_party.lower()} in Stock Control → Parties first.")
+                return
+            if not item_options:
+                st.warning("Create at least one stock item first.")
+                return
+            with st.form(form_key, clear_on_submit=True):
+                c1, c2, c3 = st.columns(3)
+                order_number = c1.text_input("Order Number", placeholder=f"{order_prefix}-001")
+                order_date = c2.date_input("Order Date", value=date.today())
+                party_label = c3.selectbox(label_party, list(party_options))
+                selected_party = party_options[party_label]
+
+                c4, c5, c6 = st.columns(3)
+                item_label = c4.selectbox("Item", list(item_options))
+                selected_item = item_options[item_label]
+                quantity = c5.number_input(f"Ordered Quantity ({selected_item['unit']})", min_value=0.0, step=1.0)
+                weight = c6.number_input("Ordered Weight (KG)", min_value=0.0, step=1.0)
+
+                c7, c8, c9 = st.columns(3)
+                rate = c7.number_input("Rate per KG (₹)", min_value=0.0, step=0.50)
+                ref_no = c8.text_input("Order / Challan Reference")
+                order_date_field = "Expected Date" if is_purchase else "Required Date"
+                target_date = c9.date_input(order_date_field, value=date.today())
+                notes = st.text_area("Notes")
+                submitted = st.form_submit_button("💾 Save Order", type="primary", use_container_width=True)
+
+            if submitted:
+                if not order_number.strip() or quantity <= 0:
+                    st.error("Order Number and a positive ordered quantity are required.")
+                else:
+                    try:
+                        header = {
+                            "order_number": order_number.strip(),
+                            "order_type": order_type,
+                            "order_date": order_date.isoformat(),
+                            "party_id": selected_party["id"],
+                            "reference_no": ref_no.strip() or None,
+                            "expected_date": target_date.isoformat() if is_purchase else None,
+                            "required_date": target_date.isoformat() if not is_purchase else None,
+                            "status": "OPEN",
+                            "notes": notes.strip() or None,
+                            "entered_by": str(user.id)
+                        }
+                        order_response = supabase.table("orders").insert(header).execute()
+                        order_id = order_response.data[0]["id"]
+                        supabase.table("order_items").insert({
+                            "order_id": order_id,
+                            "stock_item_id": selected_item["id"],
+                            "description": selected_item["name"],
+                            "quantity": quantity,
+                            "unit": selected_item["unit"],
+                            "weight_kg": weight,
+                            "rate_per_kg": rate
+                        }).execute()
+                        st.success(f"{label_party} order {order_number.strip()} created successfully.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Unable to create order: {e}")
+
+    with order_tab1:
+        render_order_create_form("PURCHASE")
+        st.divider()
+        status_filter = st.selectbox("Purchase Order Status", ["ALL", "OPEN", "PARTIAL", "COMPLETED", "CANCELLED"], key="purchase_order_status_filter")
+        order_search = st.text_input("🔎 Search Purchase Orders", key="purchase_order_search", placeholder="Order, supplier, item, challan...")
+        purchase_order_rows, raw_purchase_orders = order_summary_rows("PURCHASE", query=order_search, status_filter=status_filter)
+        st.dataframe(purchase_order_rows, use_container_width=True, hide_index=True)
+        add_excel_download(purchase_order_rows, "SP_Enterprise_Purchase_Orders.xlsx", "📊 Download Purchase Orders (Excel)", "export_purchase_orders", "Purchase Orders")
+        if raw_purchase_orders:
+            render_delete_control("orders", raw_purchase_orders, lambda r: f'{r.get("order_number")} | {r.get("order_date")} | {r.get("status")}', "delete_purchase_order")
+
+    with order_tab2:
+        render_order_create_form("SALES")
+        st.divider()
+        status_filter = st.selectbox("Sales Order Status", ["ALL", "OPEN", "PARTIAL", "COMPLETED", "CANCELLED"], key="sales_order_status_filter")
+        order_search = st.text_input("🔎 Search Sales Orders", key="sales_order_search", placeholder="Order, customer, item, reference...")
+        sales_order_rows, raw_sales_orders = order_summary_rows("SALES", query=order_search, status_filter=status_filter)
+        st.dataframe(sales_order_rows, use_container_width=True, hide_index=True)
+        add_excel_download(sales_order_rows, "SP_Enterprise_Sales_Orders.xlsx", "📊 Download Sales Orders (Excel)", "export_sales_orders", "Sales Orders")
+        if raw_sales_orders:
+            render_delete_control("orders", raw_sales_orders, lambda r: f'{r.get("order_number")} | {r.get("order_date")} | {r.get("status")}', "delete_sales_order")
+
+
+# ---------------------------------------------------------------------
+# JOBWORK
+# ---------------------------------------------------------------------
+
+elif page == "JOBWORK":
+
+    try:
+        items = (supabase.table("stock_items").select("*").eq("active", True).order("name").execute().data or [])
+        parties = (supabase.table("business_parties").select("*").eq("active", True).order("name").execute().data or [])
+    except Exception as e:
+        items, parties = [], []
+        st.error(f"Unable to load master data for JOBWORK: {e}")
+
+    st.markdown('<div class="module-title">JOBWORK</div>', unsafe_allow_html=True)
+    st.markdown('<div class="module-subtitle">Track material sent to and received from Jobwork without treating the movement as a purchase, sale, receipt or payment.</div>', unsafe_allow_html=True)
+
+    job_tab1, job_tab2, job_tab3 = st.tabs(["📤 Send to JOBWORK", "📥 Receive from JOBWORK", "📋 JOBWORK Register"])
+
+    jobwork_parties = [p for p in parties if str(p.get("party_type", "")).upper() == "JOBWORK"]
+    jobwork_party_options = {f'{p.get("name")} [JOBWORK]': p for p in jobwork_parties}
+    jobwork_item_options = {f'{x.get("name")} ({x.get("unit")})': x for x in items}
+
+    with job_tab1:
+        if not jobwork_party_options:
+            st.warning("Create a Party with type JOBWORK in Stock Control → Parties first.")
+        elif not jobwork_item_options:
+            st.warning("Create stock items first.")
+        else:
+            with st.form("jobwork_send_form", clear_on_submit=True):
+                j1, j2, j3 = st.columns(3)
+                challan_no = j1.text_input("JOBWORK Challan No.")
+                jobwork_date = j2.date_input("Date", value=date.today())
+                party_label = j3.selectbox("JOBWORK Company", list(jobwork_party_options))
+                selected_job_party = jobwork_party_options[party_label]
+                j4, j5, j6 = st.columns(3)
+                item_label = j4.selectbox("Raw Material", list(jobwork_item_options))
+                selected_job_item = jobwork_item_options[item_label]
+                qty = j5.number_input(f"Quantity ({selected_job_item['unit']})", min_value=0.0, step=1.0)
+                weight = j6.number_input("Weight (KG)", min_value=0.0, step=1.0)
+                bags = st.number_input("No. of Bags", min_value=0.0, step=1.0)
+                notes = st.text_area("Notes")
+                save_job_send = st.form_submit_button("📤 Send Material to JOBWORK", type="primary", use_container_width=True)
+
+            if save_job_send:
+                current_bal = stock_balance(selected_job_item["id"])
+                available_qty = current_bal[2]
+                available_weight = current_bal[5]
+                if not challan_no.strip() or qty <= 0 or weight <= 0:
+                    st.error("Challan number, quantity and weight are required.")
+                elif qty > available_qty or weight > available_weight:
+                    st.error("JOBWORK dispatch exceeds available stock.")
+                else:
+                    try:
+                        job_response = supabase.table("jobwork_records").insert({
+                            "challan_no": challan_no.strip(),
+                            "jobwork_date": jobwork_date.isoformat(),
+                            "party_id": selected_job_party["id"],
+                            "status": "SENT",
+                            "waste_quantity": 0,
+                            "waste_weight_kg": 0,
+                            "waste_notes": None,
+                            "notes": notes.strip() or None,
+                            "entered_by": str(user.id)
+                        }).execute()
+                        jobwork_id = job_response.data[0]["id"]
+                        supabase.table("stock_movements").insert({
+                            "movement_date": jobwork_date.isoformat(),
+                            "item_id": selected_job_item["id"],
+                            "party_id": selected_job_party["id"],
+                            "direction": "OUT",
+                            "movement_type": "JOBWORK_OUT",
+                            "quantity": qty,
+                            "bags": bags,
+                            "weight_kg": weight,
+                            "rate_per_kg": 0,
+                            "transportation": 0,
+                            "billing_amount": 0,
+                            "reference_no": challan_no.strip(),
+                            "vehicle_no": None,
+                            "handled_by": None,
+                            "notes": notes.strip() or None,
+                            "entered_by": str(user.id),
+                            "duplicate_fingerprint": fp(jobwork_date, selected_job_item["id"], selected_job_party["id"], "JOBWORK_OUT", qty, bags, weight, challan_no),
+                            "purchase_status": "NOT_APPLICABLE",
+                            "purchase_id": None,
+                            "order_id": None,
+                            "jobwork_id": jobwork_id,
+                            "legacy_reason": None
+                        }).execute()
+                        st.success(f"{qty:g} {selected_job_item['unit']} / {weight:,.2f} KG sent to JOBWORK under {challan_no.strip()}.")
+                        st.rerun()
+                    except Exception as e:
+                        try:
+                            if 'jobwork_id' in locals():
+                                supabase.table("jobwork_records").delete().eq("id", jobwork_id).execute()
+                        except Exception:
+                            pass
+                        st.error(f"Unable to record JOBWORK dispatch: {e}")
+
+    with job_tab2:
+        try:
+            active_jobs = supabase.table("jobwork_records").select("*").neq("status", "CANCELLED").neq("status", "COMPLETED").order("jobwork_date", desc=True).limit(500).execute().data or []
+        except Exception:
+            active_jobs = []
+        if not active_jobs:
+            st.info("No active JOBWORK challans are awaiting return.")
+        elif not jobwork_item_options:
+            st.warning("Create stock items first.")
+        else:
+            job_options = {}
+            for j in active_jobs:
+                s = jobwork_summary(j["id"])
+                job_options[f'{j.get("challan_no")} | {j.get("jobwork_date")} | Pending {s["pending_weight"]:,.2f} KG'] = j
+            selected_job_label = st.selectbox("Select JOBWORK Challan", list(job_options), key="jobwork_receive_select")
+            selected_job = job_options[selected_job_label]
+            selected_summary = jobwork_summary(selected_job["id"])
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Sent KG", f'{selected_summary["sent_weight"]:,.2f}')
+            c2.metric("Returned KG", f'{selected_summary["returned_weight"]:,.2f}')
+            c3.metric("Waste KG", f'{selected_summary["waste_weight"]:,.2f}')
+            c4.metric("Pending KG", f'{selected_summary["pending_weight"]:,.2f}')
+
+            with st.form("jobwork_receive_form", clear_on_submit=False):
+                r1, r2, r3 = st.columns(3)
+                return_date = r1.date_input("Return Date", value=date.today())
+                output_item_label = r2.selectbox("Finished / Returned Material", list(jobwork_item_options), key="jobwork_output_item")
+                output_item = jobwork_item_options[output_item_label]
+                output_qty = r3.number_input(f"Returned Quantity ({output_item['unit']})", min_value=0.0, step=1.0, key="jobwork_output_qty")
+                r4, r5, r6 = st.columns(3)
+                output_weight = r4.number_input("Returned Weight (KG)", min_value=0.0, step=1.0, key="jobwork_output_weight")
+                waste_qty = r5.number_input("Waste Quantity", min_value=0.0, step=1.0, value=float(selected_job.get("waste_quantity") or 0), key="jobwork_waste_qty")
+                waste_weight = r6.number_input("Waste Weight (KG)", min_value=0.0, step=1.0, value=float(selected_job.get("waste_weight_kg") or 0), key="jobwork_waste_weight")
+                waste_notes = st.text_area("Waste / Process Loss Notes", value=selected_job.get("waste_notes") or "", key="jobwork_waste_notes")
+                receive_notes = st.text_area("Return Notes", key="jobwork_return_notes")
+                save_job_receive = st.form_submit_button("📥 Receive Material from JOBWORK", type="primary", use_container_width=True)
+
+            if save_job_receive:
+                if output_qty <= 0 or output_weight <= 0:
+                    st.error("Returned quantity and weight must be greater than zero.")
+                elif output_weight + float(waste_weight) > selected_summary["sent_weight"] + 0.01:
+                    st.error("Returned weight plus waste cannot exceed the material sent to JOBWORK.")
+                else:
+                    try:
+                        supabase.table("jobwork_records").update({
+                            "waste_quantity": waste_qty,
+                            "waste_weight_kg": waste_weight,
+                            "waste_notes": waste_notes.strip() or None
+                        }).eq("id", selected_job["id"]).execute()
+                        supabase.table("stock_movements").insert({
+                            "movement_date": return_date.isoformat(),
+                            "item_id": output_item["id"],
+                            "party_id": selected_job["party_id"],
+                            "direction": "IN",
+                            "movement_type": "JOBWORK_IN",
+                            "quantity": output_qty,
+                            "bags": 0,
+                            "weight_kg": output_weight,
+                            "rate_per_kg": 0,
+                            "transportation": 0,
+                            "billing_amount": 0,
+                            "reference_no": selected_job["challan_no"],
+                            "vehicle_no": None,
+                            "handled_by": None,
+                            "notes": receive_notes.strip() or None,
+                            "entered_by": str(user.id),
+                            "duplicate_fingerprint": fp(return_date, output_item["id"], selected_job["party_id"], "JOBWORK_IN", output_qty, output_weight, selected_job["challan_no"]),
+                            "purchase_status": "NOT_APPLICABLE",
+                            "purchase_id": None,
+                            "order_id": None,
+                            "jobwork_id": selected_job["id"],
+                            "legacy_reason": None
+                        }).execute()
+                        refresh_jobwork_status(selected_job["id"])
+                        st.success(f"JOBWORK return recorded against {selected_job['challan_no']}.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Unable to record JOBWORK return: {e}")
+
+    with job_tab3:
+        job_search = st.text_input("🔎 Search JOBWORK Register", key="jobwork_register_search", placeholder="Challan, party, material, status...")
+        try:
+            job_rows = supabase.table("jobwork_records").select("*").order("jobwork_date", desc=True).limit(1000).execute().data or []
+            job_party_map = {str(x.get("id")): x.get("name") for x in (supabase.table("business_parties").select("id,name").execute().data or [])}
+            display_job = []
+            for j in job_rows:
+                s = jobwork_summary(j["id"])
+                items_sent = ", ".join(dict.fromkeys(str((m.get("stock_items") or {}).get("name") or "") for m in s["movements"] if m.get("movement_type") == "JOBWORK_OUT" and (m.get("stock_items") or {}).get("name")))
+                items_returned = ", ".join(dict.fromkeys(str((m.get("stock_items") or {}).get("name") or "") for m in s["movements"] if m.get("movement_type") == "JOBWORK_IN" and (m.get("stock_items") or {}).get("name")))
+                display_job.append({
+                    "Date": j.get("jobwork_date"),
+                    "Challan": j.get("challan_no"),
+                    "JOBWORK Party": job_party_map.get(str(j.get("party_id"))),
+                    "Material Sent": items_sent,
+                    "Material Returned": items_returned,
+                    "Sent KG": s["sent_weight"],
+                    "Returned KG": s["returned_weight"],
+                    "Waste KG": s["waste_weight"],
+                    "Pending KG": s["pending_weight"],
+                    "Status": j.get("status"),
+                    "Notes": j.get("notes")
+                })
+            filtered_job = filter_display_rows(display_job, job_search)
+            st.dataframe(filtered_job, use_container_width=True, hide_index=True)
+            add_excel_download(filtered_job, "SP_Enterprise_JOBWORK_Register.xlsx", "📊 Download JOBWORK Register (Excel)", "export_jobwork_register", "JOBWORK")
+        except Exception as e:
+            st.error(f"Unable to load JOBWORK register: {e}")
+
 
 # ---------------------------------------------------------------------
 # ACCOUNTS
@@ -1957,6 +3109,21 @@ elif page == "Accounts":
         "Manage the Chart of Accounts, Sales, Purchases, Expenses, "
         "Receipts, Payments and other accounting records from one system."
     )
+
+    st.markdown('<div class="section-label">Account Transaction Search</div>', unsafe_allow_html=True)
+    account_challan_search = st.text_input(
+        "🔎 Search all transactions by Challan / Reference / Invoice / Order",
+        key="accounts_global_search",
+        placeholder="Enter challan/reference number..."
+    )
+    if account_challan_search.strip():
+        account_search_results = global_search(account_challan_search)
+        if account_search_results:
+            for section_name, section_rows in account_search_results.items():
+                st.markdown(f"**{section_name}**")
+                st.dataframe(section_rows, use_container_width=True, hide_index=True)
+        else:
+            st.warning("No transaction found for that challan/reference.")
 
     # ================================================================
     # ACCOUNTING NAVIGATION
@@ -2728,12 +3895,14 @@ elif page == "Accounts":
                 )
             })
 
+        sales_search = st.text_input("🔎 Search Sales Register", key="sales_register_search", placeholder="Invoice, customer, challan/reference, status...")
+        filtered_sales_rows = filter_display_rows(register_rows, sales_search)
         st.dataframe(
-            register_rows,
+            filtered_sales_rows,
             use_container_width=True,
             hide_index=True
         )
-        add_excel_download(register_rows, "SP_Enterprise_Sales_Register.xlsx", "📊 Download Sales Register (Excel)", "export_sales_register", "Sales Register")
+        add_excel_download(filtered_sales_rows, "SP_Enterprise_Sales_Register.xlsx", "📊 Download Sales Register (Excel)", "export_sales_register", "Sales Register")
 
         render_delete_control(
             "sales_invoices",
@@ -2779,6 +3948,8 @@ elif page == "Accounts":
                     "Rate/KG": d.get("rate_per_kg"),
                     "Billing ₹": d.get("billing_amount")
                 })
+            pending_dispatch_search = st.text_input("🔎 Search Dispatches Awaiting Invoice", key="pending_dispatch_search", placeholder="Challan, customer, item...")
+            pending_display = filter_display_rows(pending_display, pending_dispatch_search)
             st.dataframe(pending_display, use_container_width=True, hide_index=True)
 
         # ------------------------------------------------------------
@@ -3556,6 +4727,14 @@ elif page == "Accounts":
                 pending_receipts = []
 
             if pending_receipts:
+                pending_purchase_search = st.text_input("🔎 Search Pending Stock Receipts", key="pending_purchase_receipts_search", placeholder="Supplier, item, challan...")
+                if pending_purchase_search.strip():
+                    pending_receipts = [
+                        r for r in pending_receipts
+                        if pending_purchase_search.strip().lower() in " ".join(str((r.get(k) or "")) for k in ["movement_date", "reference_no", "quantity", "weight_kg"]).lower()
+                        or pending_purchase_search.strip().lower() in str((r.get("stock_items") or {}).get("name") or "").lower()
+                        or pending_purchase_search.strip().lower() in str((r.get("business_parties") or {}).get("name") or "").lower()
+                    ]
                 receipt_options = {}
                 for r in pending_receipts:
                     item = r.get("stock_items") or {}
@@ -3647,8 +4826,10 @@ elif page == "Accounts":
             try:
                 purchases = supabase.table("accounts_purchases").select("*").order("bill_date", desc=True).limit(100).execute().data or []
                 if purchases:
-                    st.dataframe(purchases, use_container_width=True, hide_index=True)
-                    add_excel_download(purchases, "SP_Enterprise_Purchases.xlsx", "📊 Download Purchases (Excel)", "export_purchases", "Purchases")
+                    purchase_search = st.text_input("🔎 Search Purchases", key="purchase_register_search", placeholder="Bill no., supplier, GSTIN...")
+                    filtered_purchases = filter_display_rows(purchases, purchase_search)
+                    st.dataframe(filtered_purchases, use_container_width=True, hide_index=True)
+                    add_excel_download(filtered_purchases, "SP_Enterprise_Purchases.xlsx", "📊 Download Purchases (Excel)", "export_purchases", "Purchases")
                     render_delete_control(
                         "accounts_purchases",
                         purchases,
@@ -3748,8 +4929,10 @@ elif page == "Accounts":
                 try:
                     expenses = supabase.table("accounts_expenses").select("*").order("expense_date", desc=True).limit(100).execute().data or []
                     if expenses:
-                        st.dataframe(expenses, use_container_width=True, hide_index=True)
-                        add_excel_download(expenses, "SP_Enterprise_Expenses.xlsx", "📊 Download Expenses (Excel)", "export_expenses", "Expenses")
+                        expense_search = st.text_input("🔎 Search Expenses", key="expense_register_search", placeholder="Description, reference, payment mode...")
+                        filtered_expenses = filter_display_rows(expenses, expense_search)
+                        st.dataframe(filtered_expenses, use_container_width=True, hide_index=True)
+                        add_excel_download(filtered_expenses, "SP_Enterprise_Expenses.xlsx", "📊 Download Expenses (Excel)", "export_expenses", "Expenses")
                         render_delete_control(
                             "accounts_expenses",
                             expenses,
@@ -3838,9 +5021,13 @@ elif page == "Accounts":
 
             st.divider()
             receipts = supabase.table("accounts_receipts").select("*").order("receipt_date", desc=True).limit(100).execute().data or []
-            st.dataframe(receipts, use_container_width=True, hide_index=True) if receipts else st.info("No receipt records yet.")
             if receipts:
-                add_excel_download(receipts, "SP_Enterprise_Receipts.xlsx", "📊 Download Receipts (Excel)", "export_receipts", "Receipts")
+                receipt_search = st.text_input("🔎 Search Receipts", key="receipt_register_search", placeholder="Receipt no., reference, narration...")
+                filtered_receipts = filter_display_rows(receipts, receipt_search)
+                st.dataframe(filtered_receipts, use_container_width=True, hide_index=True)
+                add_excel_download(filtered_receipts, "SP_Enterprise_Receipts.xlsx", "📊 Download Receipts (Excel)", "export_receipts", "Receipts")
+            else:
+                st.info("No receipt records yet.")
             render_delete_control(
                 "accounts_receipts",
                 receipts,
@@ -3911,9 +5098,13 @@ elif page == "Accounts":
 
             st.divider()
             payments = supabase.table("accounts_payments").select("*").order("payment_date", desc=True).limit(100).execute().data or []
-            st.dataframe(payments, use_container_width=True, hide_index=True) if payments else st.info("No payment records yet.")
             if payments:
-                add_excel_download(payments, "SP_Enterprise_Payments.xlsx", "📊 Download Payments (Excel)", "export_payments", "Payments")
+                payment_search = st.text_input("🔎 Search Payments", key="payment_register_search", placeholder="Payment no., reference, narration...")
+                filtered_payments = filter_display_rows(payments, payment_search)
+                st.dataframe(filtered_payments, use_container_width=True, hide_index=True)
+                add_excel_download(filtered_payments, "SP_Enterprise_Payments.xlsx", "📊 Download Payments (Excel)", "export_payments", "Payments")
+            else:
+                st.info("No payment records yet.")
             render_delete_control(
                 "accounts_payments",
                 payments,
@@ -4112,12 +5303,14 @@ elif page == "Accounts":
                                 account.get("active")
                         })
 
+                    cash_bank_search = st.text_input("🔎 Search Cash / Bank Accounts", key="cash_bank_search", placeholder="Account name, bank, number...")
+                    filtered_cash_bank = filter_display_rows(display_accounts, cash_bank_search)
                     st.dataframe(
-                        display_accounts,
+                        filtered_cash_bank,
                         use_container_width=True,
                         hide_index=True
                     )
-                    add_excel_download(display_accounts, "SP_Enterprise_Cash_Bank_Accounts.xlsx", "📊 Download Cash / Bank Accounts (Excel)", "export_cash_bank_accounts", "Cash Bank Accounts")
+                    add_excel_download(filtered_cash_bank, "SP_Enterprise_Cash_Bank_Accounts.xlsx", "📊 Download Cash / Bank Accounts (Excel)", "export_cash_bank_accounts", "Cash Bank Accounts")
                     render_delete_control(
                         "cash_bank_accounts",
                         bank_accounts,
@@ -4648,12 +5841,14 @@ elif page == "Accounts":
                             journal.get("created_at")
                     })
 
+                journal_search = st.text_input("🔎 Search Journal Register", key="journal_register_search", placeholder="Journal no., reference, narration, voucher type...")
+                filtered_journals = filter_display_rows(display_journals, journal_search)
                 st.dataframe(
-                    display_journals,
+                    filtered_journals,
                     use_container_width=True,
                     hide_index=True
                 )
-                add_excel_download(display_journals, "SP_Enterprise_Journal_Register.xlsx", "📊 Download Journal Register (Excel)", "export_journal_register", "Journal Register")
+                add_excel_download(filtered_journals, "SP_Enterprise_Journal_Register.xlsx", "📊 Download Journal Register (Excel)", "export_journal_register", "Journal Register")
                 render_delete_control(
                     "journal_entries",
                     journal_entries,
@@ -4759,8 +5954,10 @@ if page == "Documents":
                 "Link": d.get("document_url"),
                 "Notes": d.get("notes")
             })
-        st.dataframe(display_documents, use_container_width=True, hide_index=True)
-        add_excel_download(display_documents, "SP_Enterprise_Documents.xlsx", "📊 Download Documents (Excel)", "export_documents", "Documents")
+        document_search = st.text_input("🔎 Search Documents", key="documents_search", placeholder="Document name, number, type, status...")
+        filtered_documents = filter_display_rows(display_documents, document_search)
+        st.dataframe(filtered_documents, use_container_width=True, hide_index=True)
+        add_excel_download(filtered_documents, "SP_Enterprise_Documents.xlsx", "📊 Download Documents (Excel)", "export_documents", "Documents")
 
         with st.expander("🗑️ Delete a test document"):
             options = {f'{d.get("document_name")} | {d.get("document_number") or "No Ref"}': d.get("id") for d in documents if d.get("id")}
