@@ -184,6 +184,260 @@ st.markdown("""
     hr {
         border-color: var(--sp-border) !important;
     }
+
+    /* ================================================================
+       FINAL PROFESSIONAL ERP POLISH — VISUAL ONLY
+       Existing functionality and business logic remain unchanged.
+       ================================================================ */
+
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
+
+    .block-container {
+        max-width: 1500px;
+        padding-left: 2rem;
+        padding-right: 2rem;
+    }
+
+    h1, h2, h3, h4 {
+        font-family: "Inter", "Segoe UI", sans-serif;
+        letter-spacing: -.02em;
+    }
+
+    /* Top application bar */
+    .sp-topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: .65rem .9rem;
+        margin: 0 0 1.1rem;
+        background: linear-gradient(90deg, #151922 0%, #1a1f29 100%);
+        border: 1px solid var(--sp-border);
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0,0,0,.18);
+    }
+    .sp-topbar-left {
+        display: flex;
+        align-items: center;
+        gap: .6rem;
+        min-width: 0;
+    }
+    .sp-topbar-brand {
+        font-weight: 800;
+        letter-spacing: .04em;
+        color: var(--sp-text);
+        font-size: .82rem;
+    }
+    .sp-topbar-sep {
+        color: var(--sp-border);
+    }
+    .sp-topbar-module {
+        color: var(--sp-muted);
+        font-size: .78rem;
+        font-weight: 700;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+    }
+    .sp-online-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        padding: .3rem .65rem;
+        border-radius: 999px;
+        border: 1px solid rgba(34,197,94,.28);
+        background: rgba(34,197,94,.08);
+        color: #86efac;
+        font-size: .72rem;
+        font-weight: 800;
+        letter-spacing: .06em;
+        text-transform: uppercase;
+    }
+
+    /* Sidebar brand */
+    .sp-brand {
+        display: flex;
+        align-items: center;
+        gap: .75rem;
+        padding: .35rem 0 .9rem;
+        margin-bottom: .55rem;
+    }
+    .sp-brand-mark {
+        width: 38px;
+        height: 38px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        background: linear-gradient(145deg, var(--sp-accent), #ff8a5b);
+        color: #111318;
+        font-size: .9rem;
+        font-weight: 900;
+        letter-spacing: -.02em;
+        box-shadow: 0 5px 16px rgba(255,107,53,.22);
+    }
+    .sp-brand-name {
+        color: var(--sp-text);
+        font-size: .88rem;
+        font-weight: 850;
+        letter-spacing: .05em;
+    }
+    .sp-brand-sub {
+        color: var(--sp-muted);
+        font-size: .62rem;
+        font-weight: 700;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        margin-top: .12rem;
+    }
+    [data-testid="stSidebar"] [data-testid="stRadio"] > label {
+        color: var(--sp-muted) !important;
+        font-size: .72rem !important;
+        font-weight: 800 !important;
+        letter-spacing: .1em;
+        text-transform: uppercase;
+        margin-bottom: .4rem;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] {
+        gap: .28rem;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] > label {
+        padding: .48rem .65rem;
+        border-radius: 9px;
+        border: 1px solid transparent;
+        transition: all .15s ease;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] > label:hover {
+        background: var(--sp-surface-2);
+        border-color: var(--sp-border);
+    }
+
+    /* Refined section titles */
+    .section-label {
+        position: relative;
+        padding-left: .7rem;
+    }
+    .section-label::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: .1rem;
+        bottom: .1rem;
+        width: 3px;
+        border-radius: 4px;
+        background: var(--sp-accent);
+    }
+
+    /* ERP panels */
+    .erp-panel {
+        background: linear-gradient(180deg, rgba(29,34,43,.82), rgba(23,26,33,.94));
+        border: 1px solid var(--sp-border);
+        border-radius: 12px;
+        padding: .95rem 1rem;
+        min-height: 104px;
+        box-shadow: 0 7px 22px rgba(0,0,0,.12);
+    }
+    .erp-panel-title {
+        color: var(--sp-muted);
+        font-size: .72rem;
+        font-weight: 800;
+        letter-spacing: .09em;
+        text-transform: uppercase;
+        margin-bottom: .35rem;
+    }
+    .erp-panel-value {
+        color: var(--sp-text);
+        font-size: 1.18rem;
+        font-weight: 800;
+        line-height: 1.2;
+    }
+    .erp-panel-sub {
+        color: var(--sp-muted);
+        font-size: .78rem;
+        margin-top: .25rem;
+    }
+
+    /* Management alerts */
+    .control-alert {
+        border: 1px solid var(--sp-border);
+        border-left: 4px solid var(--sp-accent);
+        border-radius: 10px;
+        padding: .72rem .8rem;
+        background: var(--sp-surface);
+        min-height: 76px;
+    }
+    .control-alert.ok { border-left-color: #22c55e; }
+    .control-alert.warn { border-left-color: #f59e0b; }
+    .control-alert.danger { border-left-color: #ef4444; }
+    .control-alert-title {
+        color: var(--sp-text);
+        font-size: .76rem;
+        font-weight: 800;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+    }
+    .control-alert-value {
+        color: var(--sp-text);
+        font-size: 1.1rem;
+        font-weight: 850;
+        margin-top: .15rem;
+    }
+    .control-alert-sub {
+        color: var(--sp-muted);
+        font-size: .73rem;
+        margin-top: .08rem;
+    }
+
+    /* Consistent buttons */
+    div.stButton > button,
+    div.stDownloadButton > button,
+    div[data-testid="stFormSubmitButton"] > button {
+        border-radius: 9px !important;
+        font-weight: 700 !important;
+        letter-spacing: .01em;
+        min-height: 38px;
+        border: 1px solid var(--sp-border) !important;
+        background: var(--sp-surface-2) !important;
+        color: var(--sp-text) !important;
+    }
+    div.stButton > button:hover,
+    div.stDownloadButton > button:hover,
+    div[data-testid="stFormSubmitButton"] > button:hover {
+        border-color: #3b4554 !important;
+        background: #232935 !important;
+        color: #ffffff !important;
+    }
+
+    /* Tables */
+    div[data-testid="stDataFrame"] {
+        border-radius: 11px !important;
+        border: 1px solid var(--sp-border) !important;
+        background: var(--sp-surface) !important;
+        box-shadow: 0 6px 20px rgba(0,0,0,.10);
+    }
+
+    /* Search inputs */
+    div[data-baseweb="input"]:has(input[placeholder*="Search"]),
+    div[data-baseweb="input"]:has(input[placeholder*="search"]) {
+        border-color: #394352 !important;
+        box-shadow: 0 0 0 1px rgba(255,107,53,.04);
+    }
+
+    /* Cleaner expanders */
+    div[data-testid="stExpander"] {
+        box-shadow: 0 6px 20px rgba(0,0,0,.08);
+    }
+
+    /* Footer */
+    .sp-footer {
+        margin-top: 2rem;
+        padding: .85rem 0 .3rem;
+        border-top: 1px solid var(--sp-border);
+        color: #7f8998;
+        font-size: .68rem;
+        text-align: center;
+        letter-spacing: .05em;
+    }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -1176,7 +1430,18 @@ cleanup_deletion_audit()
 # ---------------------------------------------------------------------
 
 with st.sidebar:
-    st.title("S.P. Enterprise")
+    st.markdown(
+        """
+        <div class="sp-brand">
+            <div class="sp-brand-mark">SP</div>
+            <div>
+                <div class="sp-brand-name">S.P. ENTERPRISE</div>
+                <div class="sp-brand-sub">Control System</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
     st.caption(user.email)
 
     page = st.radio(
@@ -1184,10 +1449,31 @@ with st.sidebar:
         ["Dashboard", "Stock Control", "Orders", "JOBWORK", "Accounts", "Documents"]
     )
 
-    if st.button("Sign out"):
+    st.markdown(
+        '<div style="height:.35rem;border-top:1px solid var(--sp-border);margin:.55rem 0 .65rem;"></div>',
+        unsafe_allow_html=True
+    )
+    st.caption("SECURE BUSINESS WORKSPACE")
+
+    if st.button("Sign out", use_container_width=True):
         supabase.auth.sign_out()
         st.session_state.clear()
         st.rerun()
+
+
+st.markdown(
+    f"""
+    <div class="sp-topbar">
+        <div class="sp-topbar-left">
+            <span class="sp-topbar-brand">S.P. ENTERPRISE</span>
+            <span class="sp-topbar-sep">/</span>
+            <span class="sp-topbar-module">{page}</span>
+        </div>
+        <div class="sp-online-pill">● System Online</div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 
 # ---------------------------------------------------------------------
@@ -1238,6 +1524,121 @@ if page == "Dashboard":
     f3.metric("Stock Movements", len(movements))
 
     st.info("Integrated workflow: Stock Receiving → Purchase Confirmation → Payable → Payment; Sales → Stock Dispatch → Receivable → Receipt; Expenses → Journal; all feeding the Chart of Accounts.")
+
+    # ================================================================
+    # MANAGEMENT CONTROL ALERTS — READ ONLY
+    # ================================================================
+    st.markdown('<div class="section-label">Management Control Alerts</div>', unsafe_allow_html=True)
+
+    low_stock_count = 0
+    pending_purchase_orders = 0
+    pending_sales_orders = 0
+    pending_jobwork = 0
+    overdue_receivables = 0
+
+    try:
+        for _item in items[:500]:
+            _bal = stock_balance(_item["id"])
+            if _bal[2] <= float(_item.get("minimum_level") or 0):
+                low_stock_count += 1
+    except Exception:
+        low_stock_count = 0
+
+    try:
+        _order_rows = (
+            supabase.table("orders")
+            .select("order_type,status")
+            .in_("status", ["OPEN", "PARTIAL"])
+            .execute()
+            .data or []
+        )
+        pending_purchase_orders = sum(1 for _x in _order_rows if _x.get("order_type") == "PURCHASE")
+        pending_sales_orders = sum(1 for _x in _order_rows if _x.get("order_type") == "SALES")
+    except Exception:
+        pass
+
+    try:
+        _jobwork_rows = (
+            supabase.table("jobwork_records")
+            .select("status")
+            .neq("status", "COMPLETED")
+            .neq("status", "CANCELLED")
+            .execute()
+            .data or []
+        )
+        pending_jobwork = len(_jobwork_rows)
+    except Exception:
+        pass
+
+    try:
+        _today = date.today()
+        overdue_receivables = sum(
+            1
+            for _x in sales
+            if _x.get("payment_status") not in {"PAID", "CANCELLED"}
+            and _x.get("due_date")
+            and str(_x.get("due_date")) < _today.isoformat()
+            and float(_x.get("balance_amount") or 0) > 0
+        )
+    except Exception:
+        overdue_receivables = 0
+
+    ca1, ca2, ca3, ca4, ca5 = st.columns(5)
+
+    with ca1:
+        _cls = "warn" if low_stock_count else "ok"
+        st.markdown(
+            f'<div class="control-alert {_cls}">'
+            f'<div class="control-alert-title">Low Stock</div>'
+            f'<div class="control-alert-value">{low_stock_count}</div>'
+            f'<div class="control-alert-sub">Items at or below minimum level</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+    with ca2:
+        _cls = "warn" if pending_purchase_orders else "ok"
+        st.markdown(
+            f'<div class="control-alert {_cls}">'
+            f'<div class="control-alert-title">Purchase Orders</div>'
+            f'<div class="control-alert-value">{pending_purchase_orders}</div>'
+            f'<div class="control-alert-sub">Open / partially received</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+    with ca3:
+        _cls = "warn" if pending_sales_orders else "ok"
+        st.markdown(
+            f'<div class="control-alert {_cls}">'
+            f'<div class="control-alert-title">Sales Orders</div>'
+            f'<div class="control-alert-value">{pending_sales_orders}</div>'
+            f'<div class="control-alert-sub">Open / partially dispatched</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+    with ca4:
+        _cls = "warn" if pending_jobwork else "ok"
+        st.markdown(
+            f'<div class="control-alert {_cls}">'
+            f'<div class="control-alert-title">JOBWORK</div>'
+            f'<div class="control-alert-value">{pending_jobwork}</div>'
+            f'<div class="control-alert-sub">Challans not yet completed</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+    with ca5:
+        _cls = "danger" if overdue_receivables else "ok"
+        st.markdown(
+            f'<div class="control-alert {_cls}">'
+            f'<div class="control-alert-title">Overdue Receivables</div>'
+            f'<div class="control-alert-value">{overdue_receivables}</div>'
+            f'<div class="control-alert-sub">Invoices past due date</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
 
     # ================================================================
     # ENTERPRISE-WIDE SEARCH
@@ -6032,3 +6433,19 @@ if page == "Documents":
     else:
         st.info("No documents recorded yet.")
 
+
+
+# ---------------------------------------------------------------------
+# APPLICATION FOOTER — VISUAL ONLY
+# ---------------------------------------------------------------------
+if "user" in st.session_state:
+    st.markdown(
+        """
+        <div class="sp-footer">
+            S.P. ENTERPRISE CONTROL SYSTEM &nbsp;•&nbsp;
+            Operational &nbsp;•&nbsp; Inventory &nbsp;•&nbsp; Accounts &nbsp;•&nbsp; Jobwork
+            &nbsp;•&nbsp; 2026
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
