@@ -2423,7 +2423,11 @@ elif page == "Stock Control":
 
                 party_type = st.selectbox(
                     "Party Type",
-                    ["SUPPLIER", "CUSTOMER", "BOTH", "JOBWORK"]
+                    ["SUPPLIER", "CUSTOMER", "BOTH"]
+                )
+
+                st.caption(
+                    "JOBWORK companies are created from the separate JOBWORK module."
                 )
 
                 contact_person = st.text_input(
@@ -2904,6 +2908,61 @@ elif page == "JOBWORK":
     st.markdown('<div class="module-title">JOBWORK</div>', unsafe_allow_html=True)
     st.markdown('<div class="module-subtitle">Track material sent to and received from Jobwork without treating the movement as a purchase, sale, receipt or payment.</div>', unsafe_allow_html=True)
 
+    # JOBWORK parties are created here so users do not need to leave the JOBWORK module.
+    with st.expander("➕ Add JOBWORK Company", expanded=False):
+        with st.form("new_jobwork_party", clear_on_submit=True):
+            jw1, jw2 = st.columns(2)
+            jobwork_name = jw1.text_input("JOBWORK Company Name")
+            jobwork_contact = jw2.text_input("Contact Person")
+            jw3, jw4 = st.columns(2)
+            jobwork_phone = jw3.text_input("Phone")
+            jobwork_address = jw4.text_input("Address")
+            jobwork_gstin = st.text_input("GSTIN (optional)")
+
+            save_jobwork_party = st.form_submit_button(
+                "💾 Add JOBWORK Company",
+                type="primary",
+                use_container_width=True
+            )
+
+        if save_jobwork_party:
+            clean_jobwork_name = jobwork_name.strip()
+            if not clean_jobwork_name:
+                st.error("JOBWORK Company Name is required.")
+            else:
+                try:
+                    existing_jobwork = (
+                        supabase
+                        .table("business_parties")
+                        .select("id,name")
+                        .eq("name", clean_jobwork_name)
+                        .eq("party_type", "JOBWORK")
+                        .limit(1)
+                        .execute()
+                        .data
+                        or []
+                    )
+
+                    if existing_jobwork:
+                        st.warning("A JOBWORK company with this name already exists.")
+                    else:
+                        supabase.table("business_parties").insert({
+                            "name": clean_jobwork_name,
+                            "party_type": "JOBWORK",
+                            "contact_person": jobwork_contact.strip() or None,
+                            "phone": jobwork_phone.strip() or None,
+                            "address": jobwork_address.strip() or None,
+                            "gstin": jobwork_gstin.strip() or None,
+                            "active": True
+                        }).execute()
+                        st.success(
+                            f"JOBWORK company '{clean_jobwork_name}' added successfully. "
+                            "It is now available in Stock Control → Parties and JOBWORK."
+                        )
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Unable to create JOBWORK company: {e}")
+
     job_tab1, job_tab2, job_tab3 = st.tabs(["📤 Send to JOBWORK", "📥 Receive from JOBWORK", "📋 JOBWORK Register"])
 
     jobwork_parties = [p for p in parties if str(p.get("party_type", "")).upper() == "JOBWORK"]
@@ -2912,7 +2971,7 @@ elif page == "JOBWORK":
 
     with job_tab1:
         if not jobwork_party_options:
-            st.warning("Create a Party with type JOBWORK in Stock Control → Parties first.")
+            st.warning("No JOBWORK company has been created yet. Use the 'Add JOBWORK Company' section above.")
         elif not jobwork_item_options:
             st.warning("Create stock items first.")
         else:
