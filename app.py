@@ -194,9 +194,19 @@ st.markdown("""
     footer { visibility: hidden; }
 
     .block-container {
+        width: 100%;
         max-width: 1500px;
+        box-sizing: border-box;
         padding-left: 2rem;
         padding-right: 2rem;
+    }
+
+    /* Responsive sizing: keep the ERP chrome inside the viewport on
+       desktop, tablet and phone screens. */
+    .stApp, .stAppViewContainer, .main, section.main, .block-container,
+    .sp-topbar {
+        box-sizing: border-box;
+        max-width: 100%;
     }
 
     h1, h2, h3, h4 {
@@ -206,27 +216,36 @@ st.markdown("""
 
     /* Top application bar */
     .sp-topbar {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
         display: flex;
         justify-content: space-between;
         align-items: center;
+        gap: .75rem;
         padding: .65rem .9rem;
         margin: 0 0 1.1rem;
         background: linear-gradient(90deg, #151922 0%, #1a1f29 100%);
         border: 1px solid var(--sp-border);
         border-radius: 12px;
         box-shadow: 0 8px 24px rgba(0,0,0,.18);
+        overflow: hidden;
     }
     .sp-topbar-left {
         display: flex;
         align-items: center;
         gap: .6rem;
         min-width: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
     }
     .sp-topbar-brand {
         font-weight: 800;
         letter-spacing: .04em;
         color: var(--sp-text);
         font-size: .82rem;
+        flex: 0 1 auto;
+        white-space: nowrap;
     }
     .sp-topbar-sep {
         color: var(--sp-border);
@@ -237,20 +256,79 @@ st.markdown("""
         font-weight: 700;
         letter-spacing: .08em;
         text-transform: uppercase;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     .sp-online-pill {
         display: inline-flex;
         align-items: center;
-        gap: .35rem;
-        padding: .3rem .65rem;
+        justify-content: center;
+        gap: .3rem;
+        flex: 0 0 auto;
+        max-width: 42%;
+        box-sizing: border-box;
+        padding: .28rem .55rem;
         border-radius: 999px;
         border: 1px solid rgba(34,197,94,.28);
         background: rgba(34,197,94,.08);
         color: #86efac;
-        font-size: .72rem;
+        font-size: .68rem;
         font-weight: 800;
-        letter-spacing: .06em;
+        letter-spacing: .045em;
         text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    @media (max-width: 900px) {
+        .block-container {
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+
+        .sp-topbar {
+            padding: .55rem .7rem;
+            gap: .5rem;
+        }
+
+        .sp-topbar-brand {
+            font-size: .74rem;
+        }
+
+        .sp-topbar-module {
+            font-size: .68rem;
+        }
+
+        .sp-online-pill {
+            max-width: none;
+            font-size: .62rem;
+            padding: .25rem .48rem;
+        }
+    }
+
+    @media (max-width: 560px) {
+        .block-container {
+            padding-left: .65rem;
+            padding-right: .65rem;
+        }
+
+        .sp-topbar {
+            align-items: stretch;
+            flex-wrap: wrap;
+            padding: .55rem .65rem;
+        }
+
+        .sp-topbar-left {
+            flex: 1 1 100%;
+            width: 100%;
+        }
+
+        .sp-online-pill {
+            align-self: flex-start;
+            max-width: 100%;
+            font-size: .6rem;
+        }
     }
 
     /* Sidebar brand */
