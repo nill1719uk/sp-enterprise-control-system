@@ -1122,6 +1122,196 @@ def filter_display_rows(rows, query, fields=None):
             filtered.append(row)
     return filtered
 
+def render_authorised_stock_editor(selected_item_id, items, parties, key_prefix="authorised_stock"):
+    """Full stock correction workspace for the single authorised MODIFY_STOCK user.
+
+    Item-master corrections (name/unit/minimum level) are stored on stock_items.
+    Physical quantity/weight corrections are made on the underlying stock movement,
+    so Current Stock remains a calculated view rather than a manually edited total.
+    """
+    if not selected_item_id or not has_feature("MODIFY_STOCK"):
+        return
+
+    try:
+        item_rows = (
+            supabase.table("stock_items")
+            .select("*")
+            .eq("id", str(selected_item_id))
+            .limit(1)
+            .execute().data or []
+        )
+        selected_item = item_rows[0] if item_rows else None
+        if not selected_item:
+            st.error("Unable to load the selected stock item.")
+            return
+
+        st.divider()
+        st.markdown("### ✏️ Authorised Stock Edit")
+        st.warning(
+            "You are using the authorised modification account. Changes are audited. "
+            "Changing the unit changes the item master/display unit; it does not automatically convert historical quantities or weights."
+        )
+
+        with st.form(f"{key_prefix}_item_form"):
+            c1, c2, c3 = st.columns(3)
+            edit_name = c1.text_input("Item Name", value=str(selected_item.get("name") or ""))
+            units = ["PCS", "KG", "TON", "MTR", "BOX", "BAG", "OTHER"]
+            current_unit = str(selected_item.get("unit") or "OTHER").upper()
+            if current_unit not in units:
+                units.append(current_unit)
+            edit_unit = c2.selectbox("Unit", units, index=units.index(current_unit))
+            edit_minimum = c3.number_input(
+                "Minimum Stock Level",
+                min_value=0.0,
+                value=float(selected_item.get("minimum_level") or 0),
+                step=1.0,
+            )
+            save_item = st.form_submit_button(
+                "💾 Save Item Modification",
+                type="primary",
+                use_container_width=True,
+            )
+
+        if save_item:
+            if not edit_name.strip():
+                st.error("Item name is required.")
+            else:
+                try:
+                    supabase.table("stock_items").update({
+                        "name": edit_name.strip(),
+                        "unit": edit_unit,
+                        "minimum_level": edit_minimum,
+                    }).eq("id", str(selected_item_id)).execute()
+                    st.success("Stock item modified successfully. The change has been added to Modification Audit.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Unable to modify stock item: {e}")
+
+        movement_rows = (
+            supabase.table("stock_movements")
+            .select("*")
+            .eq("item_id", str(selected_item_id))
+            .order("movement_date", desc=True)
+            .limit(500)
+            .execute().data or []
+        )
+        if movement_rows:
+            st.markdown("#### Edit an underlying stock movement")
+            st.caption(
+                "Total In, Total Out, Current Balance and Weight Balance are calculated from these movements. "
+                "To correct those totals, edit the relevant movement rather than typing over the aggregate."
+            )
+            movement_options = {
+                f"{r.get('movement_date')} | {r.get('direction')} | {r.get('reference_no') or 'No Ref'} | Qty {r.get('quantity', 0)} | Wt {r.get('weight_kg', 0)}": r.get("id")
+                for r in movement_rows if r.get("id")
+            }
+            selected_label = st.selectbox(
+                "Select movement to edit",
+                list(movement_options),
+                key=f"{key_prefix}_movement_select",
+            )
+            movement_id = movement_options[selected_label]
+            current_record = next((r for r in movement_rows if str(r.get("id")) == str(movement_id)), None)
+            if current_record:
+                edit_item_options = {f'{x.get("name")} ({x.get("unit")})': x for x in items}
+                edit_party_options = {"No Party": None}
+                edit_party_options.update({f'{p.get("name")} [{p.get("party_type")}]': p for p in parties})
+                current_item_label = next(
+                    (k for k, v in edit_item_options.items() if str(v.get("id")) == str(current_record.get("item_id"))),
+                    next(iter(edit_item_options), None),
+                )
+                current_party_label = "No Party"
+                for k, v in edit_party_options.items():
+                    if v and str(v.get("id")) == str(current_record.get("party_id")):
+                        current_party_label = k
+                        break
+
+                with st.form(f"{key_prefix}_movement_form"):
+                    m1, m2, m3 = st.columns(3)
+                    new_date = m1.date_input("Movement Date", value=date.fromisoformat(str(current_record.get("movement_date"))))
+                    new_item_label = m2.selectbox(
+                        "Item", list(edit_item_options),
+                        index=list(edit_item_options).index(current_item_label) if current_item_label in edit_item_options else 0,
+                    )
+                    new_party_label = m3.selectbox(
+                        "Party", list(edit_party_options),
+                        index=list(edit_party_options).index(current_party_label) if current_party_label in edit_party_options else 0,
+                    )
+                    m4, m5, m6 = st.columns(3)
+                    new_qty = m4.number_input("Quantity", min_value=0.0, value=float(current_record.get("quantity") or 0), step=1.0)
+                    new_bags = m5.number_input("Bags", min_value=0.0, value=float(current_record.get("bags") or 0), step=1.0)
+                    new_weight = m6.number_input("Weight (KG)", min_value=0.0, value=float(current_record.get("weight_kg") or 0), step=1.0)
+                    m7, m8, m9 = st.columns(3)
+                    new_rate = m7.number_input("Rate per KG (₹)", min_value=0.0, value=float(current_record.get("rate_per_kg") or 0), step=0.50)
+                    new_transport = m8.number_input("Transportation (₹)", min_value=0.0, value=float(current_record.get("transportation") or 0), step=1.0)
+                    new_billing = m9.number_input("Billing Amount (₹)", min_value=0.0, value=float(current_record.get("billing_amount") or 0), step=1.0)
+                    m10, m11, m12 = st.columns(3)
+                    new_ref = m10.text_input("Reference / Challan", value=str(current_record.get("reference_no") or ""))
+                    new_vehicle = m11.text_input("Vehicle No.", value=str(current_record.get("vehicle_no") or ""))
+                    new_handler = m12.text_input("Handled By", value=str(current_record.get("handled_by") or ""))
+                    new_notes = st.text_input("Notes", value=str(current_record.get("notes") or ""))
+                    st.caption(f"Movement Type: {current_record.get('movement_type') or 'NORMAL'} | Direction: {current_record.get('direction')} | Record ID: {current_record.get('id')}")
+                    save_movement = st.form_submit_button("💾 Save Movement Modification", type="primary", use_container_width=True)
+
+                if save_movement:
+                    selected_new_item = edit_item_options[new_item_label]
+                    selected_new_party = edit_party_options[new_party_label]
+                    if new_qty <= 0 or new_weight <= 0 or not new_ref.strip():
+                        st.error("Quantity, weight and reference/challan are required.")
+                    else:
+                        if current_record.get("direction") == "OUT":
+                            excluded_rows = (
+                                supabase.table("stock_movements")
+                                .select("direction,quantity,weight_kg")
+                                .eq("item_id", selected_new_item["id"])
+                                .neq("id", movement_id)
+                                .execute().data or []
+                            )
+                            in_qty = sum(float(x.get("quantity") or 0) for x in excluded_rows if x.get("direction") == "IN")
+                            out_qty = sum(float(x.get("quantity") or 0) for x in excluded_rows if x.get("direction") == "OUT")
+                            in_wt = sum(float(x.get("weight_kg") or 0) for x in excluded_rows if x.get("direction") == "IN")
+                            out_wt = sum(float(x.get("weight_kg") or 0) for x in excluded_rows if x.get("direction") == "OUT")
+                            if new_qty > in_qty - out_qty + 0.0001 or new_weight > in_wt - out_wt + 0.0001:
+                                st.error("Modification blocked because the corrected OUT movement would exceed the available stock position.")
+                                st.stop()
+                        new_data = {
+                            "movement_date": str(new_date),
+                            "item_id": selected_new_item["id"],
+                            "party_id": selected_new_party["id"] if selected_new_party else None,
+                            "quantity": new_qty,
+                            "bags": new_bags,
+                            "weight_kg": new_weight,
+                            "rate_per_kg": new_rate,
+                            "transportation": new_transport,
+                            "billing_amount": new_billing,
+                            "reference_no": new_ref.strip(),
+                            "vehicle_no": new_vehicle.strip() or None,
+                            "handled_by": new_handler.strip() or None,
+                            "notes": new_notes.strip() or None,
+                            "duplicate_fingerprint": fp(
+                                new_date,
+                                selected_new_item["id"],
+                                selected_new_party["id"] if selected_new_party else None,
+                                current_record.get("direction"),
+                                new_qty,
+                                new_bags,
+                                new_weight,
+                                new_ref,
+                            ),
+                        }
+                        try:
+                            supabase.table("stock_movements").update(new_data).eq("id", movement_id).execute()
+                            if current_record.get("order_id"):
+                                refresh_order_status(current_record.get("order_id"))
+                            if current_record.get("jobwork_id"):
+                                refresh_jobwork_status(current_record.get("jobwork_id"))
+                            st.success("Stock movement modified successfully. The before/after record has been added to Modification Audit.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Unable to modify stock movement: {e}")
+    except Exception as e:
+        st.error(f"Unable to load the authorised stock editor: {e}")
+
 
 def refresh_order_status(order_id):
     """Recalculate a Purchase/Sales Order's fulfillment status from linked stock movements."""
@@ -2761,11 +2951,43 @@ elif page == "Stock Control":
 
         current_stock_search = st.text_input("🔎 Search Current Stock", key="current_stock_search", placeholder="Item name or unit...")
         filtered_current_stock = filter_display_rows(rows, current_stock_search, ["Item", "Unit", "Status"])
-        st.dataframe(
-            filtered_current_stock,
-            use_container_width=True,
-            hide_index=True
-        )
+
+        if has_feature("MODIFY_STOCK"):
+            st.caption("🔐 Authorised modification mode: each stock row has its own Edit button. Other users see the normal read-only table.")
+            header = st.columns([2.2, 0.65, 0.9, 0.9, 0.95, 1.0, 1.0, 1.05, 0.9, 0.8, 0.7])
+            headers = ["Item", "Unit", "Total In", "Total Out", "Balance", "Weight In", "Weight Out", "Weight Bal.", "Min", "Status", "Edit"]
+            for col, label in zip(header, headers):
+                col.markdown(f"**{label}**")
+            for row in filtered_current_stock:
+                item_match = next((x for x in items if str(x.get("name")) == str(row.get("Item"))), None)
+                item_id = item_match.get("id") if item_match else None
+                cols = st.columns([2.2, 0.65, 0.9, 0.9, 0.95, 1.0, 1.0, 1.05, 0.9, 0.8, 0.7])
+                vals = [
+                    row.get("Item"), row.get("Unit"), f"{float(row.get('Total In') or 0):g}",
+                    f"{float(row.get('Total Out') or 0):g}", f"{float(row.get('Current Balance') or 0):g}",
+                    f"{float(row.get('Weight In (KG)') or 0):g}", f"{float(row.get('Weight Out (KG)') or 0):g}",
+                    f"{float(row.get('Weight Balance (KG)') or 0):g}", f"{float(row.get('Minimum Level') or 0):g}", row.get("Status")
+                ]
+                for col, value in zip(cols[:10], vals):
+                    col.write(value)
+                if item_id and cols[10].button("✏️", key=f"edit_current_stock_{item_id}", help="Edit this stock item and its underlying movements"):
+                    st.session_state["authorised_stock_edit_item_id"] = item_id
+                    st.rerun()
+
+            selected_edit_id = st.session_state.get("authorised_stock_edit_item_id")
+            if selected_edit_id:
+                selected_exists = any(str(x.get("id")) == str(selected_edit_id) for x in items)
+                if selected_exists:
+                    render_authorised_stock_editor(selected_edit_id, items, parties, "current_stock_authorised")
+                else:
+                    st.session_state.pop("authorised_stock_edit_item_id", None)
+        else:
+            st.dataframe(
+                filtered_current_stock,
+                use_container_width=True,
+                hide_index=True
+            )
+
         add_excel_download(filtered_current_stock, "SP_Enterprise_Current_Stock.xlsx", "📊 Download Current Stock (Excel)", "export_current_stock", "Current Stock")
 
         if current_stock_search.strip():
