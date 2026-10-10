@@ -1671,7 +1671,7 @@ def render_recent_frame(title, rows, query_key, empty_text="No records yet."):
 
 if "user" not in st.session_state:
     st.title("S.P. Enterprise")
-    st.subheader("Cloud Accounts & Stock Control")
+    st.subheader("Stock Management System")
 
     email = st.text_input("Email")
     password = st.text_input("Password", type="password")
@@ -1704,7 +1704,7 @@ with st.sidebar:
             <div class="sp-brand-mark">SP</div>
             <div>
                 <div class="sp-brand-name">S.P. ENTERPRISE</div>
-                <div class="sp-brand-sub">Control System</div>
+                <div class="sp-brand-sub">Stock Management</div>
             </div>
         </div>
         """,
@@ -1712,9 +1712,14 @@ with st.sidebar:
     )
     st.caption(user.email)
 
+    available_pages = ["Dashboard", "Stock Control", "Orders", "JOBWORK"]
+    requested_page = st.session_state.pop("sp_dashboard_target_page", None)
+    if requested_page in available_pages:
+        st.session_state["module_nav"] = requested_page
     page = st.radio(
         "Module",
-        ["Dashboard", "Stock Control", "Orders", "JOBWORK", "Accounts", "Documents"]
+        available_pages,
+        key="module_nav"
     )
 
     st.markdown(
@@ -1750,310 +1755,159 @@ st.markdown(
 
 if page == "Dashboard":
 
-    st.markdown('<div class="module-title">Control Dashboard</div>', unsafe_allow_html=True)
-    st.markdown('<div class="module-subtitle">Operational and financial overview for S.P. Enterprise</div>', unsafe_allow_html=True)
+    st.markdown('<div class="module-title">Stock Management Dashboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="module-subtitle">A simple operational view of stock, orders, dispatches and jobwork. Accounting remains in Tally.</div>', unsafe_allow_html=True)
 
+    items, parties, movements, orders, jobwork_rows = [], [], [], [], []
+    load_errors = []
     try:
-        items = (supabase.table("stock_items").select("*").eq("active", True).execute().data or [])
-        parties = (supabase.table("business_parties").select("*").eq("active", True).execute().data or [])
-        movements = (supabase.table("stock_movements").select("id,direction,billing_amount").execute().data or [])
-        sales = (supabase.table("sales_invoices").select("total_amount,balance_amount,payment_status").execute().data or [])
-        purchases = (supabase.table("accounts_purchases").select("bill_total").execute().data or [])
-        expenses = (supabase.table("accounts_expenses").select("total_amount").execute().data or [])
+        items = (supabase.table("stock_items").select("*").eq("active", True).order("name").execute().data or [])
     except Exception as e:
-        st.error("Unable to load dashboard data.")
-        st.code(str(e))
-        items, parties, movements, sales, purchases, expenses = [], [], [], [], [], []
-
-    total_sales = sum(float(x.get("total_amount") or 0) for x in sales if x.get("payment_status") != "CANCELLED")
-    receivables = sum(float(x.get("balance_amount") or 0) for x in sales if x.get("payment_status") != "CANCELLED")
-    total_purchases = sum(float(x.get("bill_total") or 0) for x in purchases)
-    total_expenses = sum(float(x.get("total_amount") or 0) for x in expenses)
-
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Active Stock Items", len(items))
-    k2.metric("Active Parties", len(parties))
-    k3.metric("Sales", f"₹{total_sales:,.2f}")
-    k4.metric("Receivables", f"₹{receivables:,.2f}")
-
-    st.markdown('<div class="section-label">System status</div>', unsafe_allow_html=True)
-    s1, s2, s3 = st.columns(3)
-    with s1:
-        st.markdown('<div class="status-card"><h4>📦 Stock Control</h4><p>Receiving, dispatch, current balances and movement history are connected.</p></div>', unsafe_allow_html=True)
-    with s2:
-        st.markdown('<div class="status-card"><h4>💰 Accounting</h4><p>Sales, purchases, expenses, receipts, payments and journals share the accounting database.</p></div>', unsafe_allow_html=True)
-    with s3:
-        st.markdown('<div class="status-card"><h4>📁 Documents</h4><p>Central register for statutory, banking, property and operational documents.</p></div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="section-label">Financial snapshot</div>', unsafe_allow_html=True)
-    f1, f2, f3 = st.columns(3)
-    f1.metric("Purchases", f"₹{total_purchases:,.2f}")
-    f2.metric("Expenses", f"₹{total_expenses:,.2f}")
-    f3.metric("Stock Movements", len(movements))
-
-    st.info("Integrated workflow: Stock Receiving → Purchase Confirmation → Payable → Payment; Sales → Stock Dispatch → Receivable → Receipt; Expenses → Journal; all feeding the Chart of Accounts.")
-
-    # ================================================================
-    # MANAGEMENT CONTROL ALERTS — READ ONLY
-    # ================================================================
-    st.markdown('<div class="section-label">Management Control Alerts</div>', unsafe_allow_html=True)
-
-    low_stock_count = 0
-    pending_purchase_orders = 0
-    pending_sales_orders = 0
-    pending_jobwork = 0
-    overdue_receivables = 0
-
+        load_errors.append(f"Stock items: {e}")
     try:
-        for _item in items[:500]:
-            _bal = stock_balance(_item["id"])
-            if _bal[2] <= float(_item.get("minimum_level") or 0):
-                low_stock_count += 1
-    except Exception:
-        low_stock_count = 0
-
+        parties = (supabase.table("business_parties").select("*").eq("active", True).order("name").execute().data or [])
+    except Exception as e:
+        load_errors.append(f"Parties: {e}")
     try:
-        _order_rows = (
-            supabase.table("orders")
-            .select("order_type,status")
-            .in_("status", ["OPEN", "PARTIAL"])
-            .execute()
-            .data or []
-        )
-        pending_purchase_orders = sum(1 for _x in _order_rows if _x.get("order_type") == "PURCHASE")
-        pending_sales_orders = sum(1 for _x in _order_rows if _x.get("order_type") == "SALES")
-    except Exception:
-        pass
-
+        movements = (supabase.table("stock_movements").select("id,movement_date,direction,movement_type,reference_no,quantity,bags,weight_kg,item_id,party_id,stock_items(name,unit),business_parties(name)").order("movement_date", desc=True).limit(500).execute().data or [])
+    except Exception as e:
+        load_errors.append(f"Stock movements: {e}")
     try:
-        _jobwork_rows = (
-            supabase.table("jobwork_records")
-            .select("status")
-            .neq("status", "COMPLETED")
-            .neq("status", "CANCELLED")
-            .execute()
-            .data or []
-        )
-        pending_jobwork = len(_jobwork_rows)
-    except Exception:
-        pass
-
+        orders = (supabase.table("orders").select("id,order_number,order_type,order_date,status,party_id,expected_date,required_date").order("order_date", desc=True).limit(500).execute().data or [])
+    except Exception as e:
+        load_errors.append(f"Orders: {e}")
     try:
-        _today = date.today()
-        overdue_receivables = sum(
-            1
-            for _x in sales
-            if _x.get("payment_status") not in {"PAID", "CANCELLED"}
-            and _x.get("due_date")
-            and str(_x.get("due_date")) < _today.isoformat()
-            and float(_x.get("balance_amount") or 0) > 0
-        )
-    except Exception:
-        overdue_receivables = 0
+        jobwork_rows = (supabase.table("jobwork_records").select("*").order("jobwork_date", desc=True).limit(200).execute().data or [])
+    except Exception as e:
+        load_errors.append(f"JOBWORK: {e}")
 
-    ca1, ca2, ca3, ca4, ca5 = st.columns(5)
+    for err in load_errors:
+        st.warning(f"Some dashboard data could not be loaded — {err}")
 
-    with ca1:
-        _cls = "warn" if low_stock_count else "ok"
-        st.markdown(
-            f'<div class="control-alert {_cls}">'
-            f'<div class="control-alert-title">Low Stock</div>'
-            f'<div class="control-alert-value">{low_stock_count}</div>'
-            f'<div class="control-alert-sub">Items at or below minimum level</div>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+    # Current stock is always calculated from the underlying movements, not edited totals.
+    stock_rows = []
+    low_stock_rows = []
+    for item in items[:1000]:
+        try:
+            bal = stock_balance(item["id"])
+            qty_balance = float(bal[2] or 0)
+            weight_balance = float(bal[5] or 0)
+            minimum = float(item.get("minimum_level") or 0)
+            row = {
+                "Item": item.get("name"),
+                "Unit": item.get("unit"),
+                "Current Qty": qty_balance,
+                "Current Weight KG": weight_balance,
+                "Minimum Level": minimum,
+                "Stock Status": "LOW STOCK" if qty_balance <= minimum else "OK",
+            }
+            stock_rows.append(row)
+            if qty_balance <= minimum:
+                low_stock_rows.append(row)
+        except Exception:
+            continue
 
-    with ca2:
-        _cls = "warn" if pending_purchase_orders else "ok"
-        st.markdown(
-            f'<div class="control-alert {_cls}">'
-            f'<div class="control-alert-title">Purchase Orders</div>'
-            f'<div class="control-alert-value">{pending_purchase_orders}</div>'
-            f'<div class="control-alert-sub">Open / partially received</div>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+    open_orders = [o for o in orders if str(o.get("status") or "").upper() in {"OPEN", "PARTIAL"}]
+    pending_jobwork = []
+    for jw in jobwork_rows:
+        try:
+            summary = jobwork_summary(jw.get("id"))
+            if summary.get("pending_weight", 0) > 0.0001 or summary.get("pending_qty", 0) > 0.0001:
+                pending_jobwork.append({
+                    "Challan": jw.get("challan_no"),
+                    "Date": jw.get("jobwork_date"),
+                    "Pending Qty": round(summary.get("pending_qty", 0), 3),
+                    "Pending Weight KG": round(summary.get("pending_weight", 0), 3),
+                    "Status": jw.get("status"),
+                })
+        except Exception:
+            continue
 
-    with ca3:
-        _cls = "warn" if pending_sales_orders else "ok"
-        st.markdown(
-            f'<div class="control-alert {_cls}">'
-            f'<div class="control-alert-title">Sales Orders</div>'
-            f'<div class="control-alert-value">{pending_sales_orders}</div>'
-            f'<div class="control-alert-sub">Open / partially dispatched</div>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Active Stock Items", len(items))
+    c2.metric("Active Parties", len(parties))
+    c3.metric("Open / Partial Orders", len(open_orders))
+    c4.metric("Pending JOBWORK", len(pending_jobwork))
 
-    with ca4:
-        _cls = "warn" if pending_jobwork else "ok"
-        st.markdown(
-            f'<div class="control-alert {_cls}">'
-            f'<div class="control-alert-title">JOBWORK</div>'
-            f'<div class="control-alert-value">{pending_jobwork}</div>'
-            f'<div class="control-alert-sub">Challans not yet completed</div>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+    st.markdown('<div class="section-label">Quick actions</div>', unsafe_allow_html=True)
+    q1, q2, q3, q4 = st.columns(4)
+    if q1.button("📥 Receive Stock", use_container_width=True):
+        st.session_state["sp_dashboard_target_page"] = "Stock Control"
+        st.rerun()
+    if q2.button("🚚 Dispatch Stock", use_container_width=True):
+        st.session_state["sp_dashboard_target_page"] = "Stock Control"
+        st.rerun()
+    if q3.button("📋 View Orders", use_container_width=True):
+        st.session_state["sp_dashboard_target_page"] = "Orders"
+        st.rerun()
+    if q4.button("🏭 JOBWORK", use_container_width=True):
+        st.session_state["sp_dashboard_target_page"] = "JOBWORK"
+        st.rerun()
 
-    with ca5:
-        _cls = "danger" if overdue_receivables else "ok"
-        st.markdown(
-            f'<div class="control-alert {_cls}">'
-            f'<div class="control-alert-title">Overdue Receivables</div>'
-            f'<div class="control-alert-value">{overdue_receivables}</div>'
-            f'<div class="control-alert-sub">Invoices past due date</div>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+    st.markdown('<div class="section-label">Stock alerts</div>', unsafe_allow_html=True)
+    if low_stock_rows:
+        st.dataframe(low_stock_rows, use_container_width=True, hide_index=True)
+    else:
+        st.success("No low-stock items based on the minimum levels currently configured.")
 
-    # ================================================================
-    # ENTERPRISE-WIDE SEARCH
-    # ================================================================
-    st.markdown('<div class="section-label">Enterprise Search</div>', unsafe_allow_html=True)
-    dashboard_search = st.text_input(
-        "🔎 Search across the Enterprise",
-        key="dashboard_global_search",
-        placeholder="Item, party, challan, invoice, order no., Jobwork challan, reference..."
-    )
-    if dashboard_search.strip():
-        search_results = global_search(dashboard_search)
-        if search_results:
-            st.success(f"Search results for: {dashboard_search.strip()}")
-            for section_name, section_rows in search_results.items():
-                st.markdown(f"**{section_name}**")
-                st.dataframe(section_rows, use_container_width=True, hide_index=True)
-        else:
-            st.warning("No matching records found.")
-
-    # ================================================================
-    # MANAGEMENT SNAPSHOT
-    # ================================================================
-    st.markdown('<div class="section-label">Enterprise Activity Snapshot</div>', unsafe_allow_html=True)
-    dash_tab1, dash_tab2, dash_tab3, dash_tab4, dash_tab5 = st.tabs([
-        "📦 Stock", "📋 Orders", "💰 Accounts", "🏭 JOBWORK", "📁 Documents"
+    tab_stock, tab_movements, tab_orders, tab_jobwork = st.tabs([
+        "📦 Current Stock", "🔄 Recent Movements", "📋 Open Orders", "🏭 Pending JOBWORK"
     ])
+    with tab_stock:
+        stock_search = st.text_input("Search current stock", key="stock_dashboard_search", placeholder="Item name or unit...")
+        visible_stock = filter_display_rows(stock_rows, stock_search)
+        if visible_stock:
+            st.dataframe(visible_stock, use_container_width=True, hide_index=True)
+        else:
+            st.info("No stock items match this search.")
+        if stock_rows:
+            st.download_button("Export Current Stock CSV", data=__import__("pandas").DataFrame(stock_rows).to_csv(index=False).encode("utf-8-sig"), file_name="SP_Enterprise_Current_Stock.csv", mime="text/csv")
 
-    with dash_tab1:
-        try:
-            recent_stock = (
-                supabase.table("stock_movements")
-                .select("movement_date,direction,movement_type,reference_no,quantity,bags,weight_kg,rate_per_kg,billing_amount,stock_items(name,unit),business_parties(name)")
-                .order("movement_date", desc=True).limit(25).execute().data or []
-            )
-            stock_snapshot = []
-            for r in recent_stock:
-                item = r.get("stock_items") or {}
-                party = r.get("business_parties") or {}
-                stock_snapshot.append({
-                    "Date": r.get("movement_date"),
-                    "Movement": r.get("movement_type") or r.get("direction"),
-                    "Direction": r.get("direction"),
-                    "Party": party.get("name"),
-                    "Challan": r.get("reference_no"),
-                    "Item": item.get("name"),
-                    "Qty": r.get("quantity"),
-                    "Weight KG": r.get("weight_kg"),
-                    "Value": r.get("billing_amount")
-                })
-            render_recent_frame("Recent Stock Movements", stock_snapshot, "dashboard_recent_stock_search")
-        except Exception as e:
-            st.error(f"Unable to load stock snapshot: {e}")
+    with tab_movements:
+        movement_rows = []
+        for m in movements[:100]:
+            item = m.get("stock_items") or {}
+            party = m.get("business_parties") or {}
+            movement_rows.append({
+                "Date": m.get("movement_date"),
+                "Movement": m.get("movement_type") or m.get("direction"),
+                "Direction": m.get("direction"),
+                "Item": item.get("name"),
+                "Party": party.get("name"),
+                "Challan / Reference": m.get("reference_no"),
+                "Qty": m.get("quantity"),
+                "Bags": m.get("bags"),
+                "Weight KG": m.get("weight_kg"),
+            })
+        movement_search = st.text_input("Search movements", key="stock_dashboard_movement_search", placeholder="Date, item, party, challan...")
+        visible_movements = filter_display_rows(movement_rows, movement_search)
+        if visible_movements:
+            st.dataframe(visible_movements, use_container_width=True, hide_index=True)
+        else:
+            st.info("No stock movements match this search.")
 
-        try:
-            current_stock_snapshot = []
-            for x in items[:500]:
-                _, _, bal_qty, _, _, bal_weight = stock_balance(x["id"])
-                current_stock_snapshot.append({
-                    "Item": x.get("name"),
-                    "Unit": x.get("unit"),
-                    "Current Qty": bal_qty,
-                    "Current Weight KG": bal_weight,
-                    "Minimum Level": x.get("minimum_level"),
-                    "Status": "⚠️ LOW" if bal_qty <= float(x.get("minimum_level") or 0) else "OK"
-                })
-            render_recent_frame("Current Stock", current_stock_snapshot, "dashboard_current_stock_search")
-        except Exception as e:
-            st.error(f"Unable to load current stock snapshot: {e}")
+    with tab_orders:
+        party_names = {}
+        for p in parties:
+            party_names[str(p.get("id"))] = p.get("name")
+        order_rows = [{
+            "Order No.": o.get("order_number"),
+            "Type": o.get("order_type"),
+            "Date": o.get("order_date"),
+            "Party": party_names.get(str(o.get("party_id")), ""),
+            "Status": o.get("status"),
+            "Expected / Required": o.get("expected_date") or o.get("required_date"),
+        } for o in open_orders]
+        if order_rows:
+            st.dataframe(order_rows, use_container_width=True, hide_index=True)
+        else:
+            st.success("There are no open or partially fulfilled orders.")
 
-    with dash_tab2:
-        try:
-            purchase_orders, _ = order_summary_rows(order_type="PURCHASE")
-            render_recent_frame("Purchase Orders", purchase_orders[:25], "dashboard_purchase_orders_search")
-        except Exception as e:
-            st.error(f"Unable to load purchase orders: {e}")
-        try:
-            sales_orders, _ = order_summary_rows(order_type="SALES")
-            render_recent_frame("Sales Orders", sales_orders[:25], "dashboard_sales_orders_search")
-        except Exception as e:
-            st.error(f"Unable to load sales orders: {e}")
-
-    with dash_tab3:
-        try:
-            sales_snapshot = []
-            for x in sales[:25]:
-                sales_snapshot.append({
-                    "Invoice": x.get("invoice_number"),
-                    "Date": x.get("invoice_date"),
-                    "Customer": x.get("customer_name"),
-                    "Total": x.get("total_amount"),
-                    "Received": x.get("amount_received"),
-                    "Balance": x.get("balance_amount"),
-                    "Status": x.get("payment_status")
-                })
-            render_recent_frame("Recent Sales", sales_snapshot, "dashboard_sales_search")
-        except Exception as e:
-            st.error(f"Unable to load sales snapshot: {e}")
-        try:
-            purchase_snapshot = supabase.table("accounts_purchases").select("bill_no,bill_date,supplier,bill_total,gst_amount").order("bill_date", desc=True).limit(25).execute().data or []
-            render_recent_frame("Recent Purchases", purchase_snapshot, "dashboard_purchases_search")
-        except Exception as e:
-            st.error(f"Unable to load purchase snapshot: {e}")
-        try:
-            expense_snapshot = supabase.table("accounts_expenses").select("expense_date,description,total_amount,payment_mode,reference_no").order("expense_date", desc=True).limit(25).execute().data or []
-            render_recent_frame("Recent Expenses", expense_snapshot, "dashboard_expenses_search")
-        except Exception as e:
-            st.error(f"Unable to load expense snapshot: {e}")
-        try:
-            receipt_snapshot = supabase.table("accounts_receipts").select("receipt_no,receipt_date,party_id,amount,payment_mode,reference_no,narration").order("receipt_date", desc=True).limit(25).execute().data or []
-            render_recent_frame("Recent Receipts", receipt_snapshot, "dashboard_receipts_search")
-        except Exception as e:
-            st.error(f"Unable to load receipt snapshot: {e}")
-        try:
-            payment_snapshot = supabase.table("accounts_payments").select("payment_no,payment_date,party_id,amount,payment_mode,reference_no,narration").order("payment_date", desc=True).limit(25).execute().data or []
-            render_recent_frame("Recent Payments", payment_snapshot, "dashboard_payments_search")
-        except Exception as e:
-            st.error(f"Unable to load payment snapshot: {e}")
-
-    with dash_tab4:
-        try:
-            jobwork_data = supabase.table("jobwork_records").select("*").order("jobwork_date", desc=True).limit(25).execute().data or []
-            party_map_rows = supabase.table("business_parties").select("id,name").execute().data or []
-            party_map = {str(x.get("id")): x.get("name") for x in party_map_rows}
-            jobwork_snapshot = []
-            for j in jobwork_data:
-                s = jobwork_summary(j.get("id"))
-                jobwork_snapshot.append({
-                    "Challan": j.get("challan_no"),
-                    "Date": j.get("jobwork_date"),
-                    "Party": party_map.get(str(j.get("party_id"))),
-                    "Sent KG": s["sent_weight"],
-                    "Returned KG": s["returned_weight"],
-                    "Waste KG": s["waste_weight"],
-                    "Pending KG": s["pending_weight"],
-                    "Status": j.get("status")
-                })
-            render_recent_frame("JOBWORK Register", jobwork_snapshot, "dashboard_jobwork_search")
-        except Exception as e:
-            st.error(f"Unable to load Jobwork snapshot: {e}")
-
-    with dash_tab5:
-        try:
-            docs_snapshot = supabase.table("business_documents").select("document_type,document_name,document_number,expiry_date,status").order("expiry_date").limit(25).execute().data or []
-            render_recent_frame("Documents", docs_snapshot, "dashboard_documents_search")
-        except Exception as e:
-            st.error(f"Unable to load document snapshot: {e}")
+    with tab_jobwork:
+        if pending_jobwork:
+            st.dataframe(pending_jobwork, use_container_width=True, hide_index=True)
+        else:
+            st.success("No pending JOBWORK quantities found.")
 
 
 # ---------------------------------------------------------------------
@@ -2881,7 +2735,7 @@ elif page == "Stock Control":
                             if selected_sales_order_id:
                                 refresh_order_status(selected_sales_order_id)
                             st.success(
-                                "🚚 Dispatch recorded successfully. The dispatch is now available to Accounts for sales processing."
+                                "🚚 Dispatch recorded successfully. Stock balances have been updated. Record the corresponding sale in Tally separately."
                             )
 
                             st.info(
@@ -3391,7 +3245,7 @@ elif page == "Stock Control":
                             current_party = next((p for p in parties if str(p.get("id")) == str(current_record.get("party_id"))), None)
                             current_item_label = next((k for k, v in edit_item_options.items() if current_item and str(v.get("id")) == str(current_item.get("id"))), list(edit_item_options)[0] if edit_item_options else None)
                             current_party_label = "No Party" if not current_party else next((k for k, v in edit_party_options.items() if v and str(v.get("id")) == str(current_party.get("id"))), "No Party")
-                            st.warning("Modification is audited automatically. Linked Purchase, Sales, Order or JOBWORK records may require separate accounting review.")
+                            st.warning("Modification is audited automatically. Linked order or JOBWORK records may need a separate operational review. Record any accounting entries in Tally.")
                             with st.form("modify_stock_form"):
                                 e1, e2, e3 = st.columns(3)
                                 new_date = e1.date_input("Movement Date", value=date.fromisoformat(str(current_record.get("movement_date"))))
